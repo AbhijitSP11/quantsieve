@@ -1,0 +1,12 @@
+export type Verdict = "BUY" | "BUY_WITH_CAUTION" | "WAIT" | "NOT_SUITABLE" | "AVOID";
+export type VerdictColor = "green" | "amber" | "red";
+export type HealthVerdict = "STRONG" | "ADEQUATE" | "WEAK" | "DISTRESSED";
+export type ValuationZone = "UNDERVALUED" | "FAIR" | "OVERVALUED" | "EXPENSIVE";
+export type QualityLabel = "GOOD" | "MODERATE" | "BAD";
+export type CompatibilityOverall = "STRONG" | "MODERATE" | "POOR";
+export type ConfidenceLevel = "HIGH" | "MODERATE" | "LOW";
+export type FlagType = "red" | "amber" | "green";
+export type QualityResult = "PASS" | "FAIL" | "CONDITIONAL";
+export type CompatibilityResult = "MATCH" | "CONCERN" | "MISMATCH";
+export type DataGapImpact = "MATERIAL" | "MINOR";
+export type MarketCapCategory = "Large" | "Mid" | "Small" | "Micro";

@@ -1,0 +1,11 @@
+{
+  "age": 25,
+  "investment_goal": "wealth_creation",
+  "investment_horizon": "5-7 years",
+  "investment_mode": "lump_sum",
+  "portfolio_type": "diversified_10plus",
+  "position_sizing": "5_to_10",
+  "risk_tolerance": "medium",
+  "volatility_preference": "medium",
+  "tax_bracket": "30pct"
+}
