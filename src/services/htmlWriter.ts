@@ -690,7 +690,7 @@ function renderFooter(stock: StockData): string {
 
 // ─── Main builder ─────────────────────────────────────────────────────────────
 
-function buildHtml(
+export function buildHtml(
   report: EvaluationReport,
   stock: StockData,
   input: EvaluationInput
