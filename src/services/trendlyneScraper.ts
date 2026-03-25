@@ -274,16 +274,23 @@ function parseTlSwot($: cheerio.CheerioAPI): TrendlyneData["tl_swot"] {
     });
   }
 
-  // Strategy 3: count badges from page text
+  // Extract counts anchored to the label words, not the badge suffix letters.
+  // Trendlyne renders e.g. "Strengths25S", "Weakness3W", "Opportunity8O", "Threats2"
+  // (the trailing letter is sometimes absent for Threats).
   const bodyText = $("body").text();
-  const countM = bodyText.match(/(\d+)\s*S\b.*?(\d+)\s*W\b.*?(\d+)\s*O\b.*?(\d+)\s*T\b/s);
+
+  const sM = bodyText.match(/strength[s]?\s*(\d+)/i);
+  const wM = bodyText.match(/weakness(?:es)?\s*(\d+)/i);
+  const oM = bodyText.match(/opportunit(?:y|ies)\s*(\d+)/i);
+  const tM = bodyText.match(/threat[s]?\s*(\d+)/i);
+
   let counts: { s: number; w: number; o: number; t: number } | null = null;
-  if (countM?.[1] && countM[2] && countM[3] && countM[4]) {
+  if (sM?.[1] ?? wM?.[1] ?? oM?.[1] ?? tM?.[1]) {
     counts = {
-      s: parseInt(countM[1]),
-      w: parseInt(countM[2]),
-      o: parseInt(countM[3]),
-      t: parseInt(countM[4]),
+      s: sM?.[1] ? parseInt(sM[1]) : 0,
+      w: wM?.[1] ? parseInt(wM[1]) : 0,
+      o: oM?.[1] ? parseInt(oM[1]) : 0,
+      t: tM?.[1] ? parseInt(tM[1]) : 0,
     };
   }
 
