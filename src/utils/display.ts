@@ -1,6 +1,8 @@
 import chalk from "chalk";
 import type { EvaluationReport } from "../types/evaluation.js";
 import type { StockData } from "../types/stock.js";
+import type { SwotResult } from "../services/swotEngine.js";
+import type { TrendlyneData } from "../services/trendlyneScraper.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -90,12 +92,49 @@ export function printFetchStatus(stock: StockData): void {
   if (stock.market_cap !== null) {
     console.log(chalk.green(`   ✓ Mkt Cap : ${fmtCr(stock.market_cap)} (${stock.market_cap_category ?? ""} Cap)`));
   }
+}
+
+export function printSwotStatus(swot: SwotResult): void {
+  console.log(chalk.bold("\n📊 SWOT Pre-Analysis..."));
+  console.log(
+    chalk.green(
+      `   ✓ ${swot.summary.s} Strengths | ${swot.summary.w} Weaknesses | ${swot.summary.o} Opportunities | ${swot.summary.t} Threats`
+    )
+  );
+}
+
+export function printTrendlyneStatus(tl: TrendlyneData): void {
+  console.log(chalk.bold("\n📡 Trendlyne supplementary data..."));
+  if (!tl.fetched) {
+    console.log(
+      chalk.yellow(`   ⚠ ${tl.error ?? "Could not fetch Trendlyne data"} — skipping`)
+    );
+  } else {
+    const betaStr = tl.beta !== null ? `Beta: ${tl.beta}` : "Beta: N/A";
+    const targetStr =
+      tl.analyst_target_price !== null
+        ? `Analyst Target: ₹${tl.analyst_target_price}${tl.analyst_count !== null ? ` (${tl.analyst_count} analysts)` : ""}`
+        : null;
+    console.log(chalk.green(`   ✓ ${betaStr}${targetStr !== null ? ` | ${targetStr}` : ""}`));
+    if (tl.dvm_scores !== null) {
+      console.log(
+        chalk.green(
+          `   ✓ DVM: Durability ${tl.dvm_scores.durability ?? "—"} | Valuation ${tl.dvm_scores.valuation ?? "—"} | Momentum ${tl.dvm_scores.momentum ?? "—"}`
+        )
+      );
+    }
+  }
   console.log(chalk.bold("\n🤖 Sending to Claude for evaluation..."));
 }
 
 // ─── Full report ─────────────────────────────────────────────────────────────
 
-export function printFullReport(report: EvaluationReport, stock: StockData): void {
+export function printFullReport(
+  report: EvaluationReport,
+  stock: StockData,
+  swot?: SwotResult,
+  trendlyne?: TrendlyneData | null
+): void {
 
   // ── 1. Snapshot ────────────────────────────────────────────────────────────
   section("SNAPSHOT");
@@ -112,6 +151,75 @@ export function printFullReport(report: EvaluationReport, stock: StockData): voi
   row("Interest Cover", fmt(stock.interest_coverage, "×"));
   row("Promoter Hold",  fmt(stock.promoter_holding, "%"));
   row("FII / DII",      `${fmt(stock.fii_holding, "%")} / ${fmt(stock.dii_holding, "%")}`);
+
+  // ── 1b. Trendlyne supplementary snapshot ──────────────────────────────────
+  if (trendlyne !== null && trendlyne !== undefined && trendlyne.fetched) {
+    if (trendlyne.beta !== null) row("Beta", String(trendlyne.beta));
+    if (trendlyne.analyst_target_price !== null) {
+      const target = `₹${trendlyne.analyst_target_price}${trendlyne.analyst_count !== null ? `  (${trendlyne.analyst_count} analysts)` : ""}`;
+      row("Analyst Target", target);
+    }
+    if (trendlyne.dvm_scores !== null) {
+      const dvm = `D:${trendlyne.dvm_scores.durability ?? "—"}  V:${trendlyne.dvm_scores.valuation ?? "—"}  M:${trendlyne.dvm_scores.momentum ?? "—"}`;
+      row("DVM Scores", dvm);
+      if (trendlyne.dvm_scores.label !== null) {
+        row("Trendlyne Class", trendlyne.dvm_scores.label);
+      }
+    }
+    if (trendlyne.retail_sentiment !== null) {
+      const sent = `${trendlyne.retail_sentiment.buy_pct ?? "—"}% Buy  ${trendlyne.retail_sentiment.sell_pct ?? "—"}% Sell  ${trendlyne.retail_sentiment.hold_pct ?? "—"}% Hold`;
+      row("Retail Sentiment", sent);
+    }
+  }
+
+  // ── 1c. SWOT Summary ───────────────────────────────────────────────────────
+  if (swot !== undefined) {
+    section("SWOT ANALYSIS  (rule-based)");
+    const { s, w, o, t } = swot.summary;
+    console.log(
+      chalk.gray("  ") +
+        chalk.green(`${s}S`) +
+        chalk.gray("  |  ") +
+        chalk.red(`${w}W`) +
+        chalk.gray("  |  ") +
+        chalk.cyan(`${o}O`) +
+        chalk.gray("  |  ") +
+        chalk.yellow(`${t}T`)
+    );
+    console.log();
+
+    if (swot.strengths.length > 0) {
+      console.log(chalk.bold.green("  Strengths"));
+      for (const item of swot.strengths) {
+        console.log(chalk.green(`   ✓ ${item.label}`));
+        console.log(chalk.gray(`       ${item.detail}`));
+      }
+      console.log();
+    }
+    if (swot.weaknesses.length > 0) {
+      console.log(chalk.bold.red("  Weaknesses"));
+      for (const item of swot.weaknesses) {
+        console.log(chalk.red(`   ✗ ${item.label}`));
+        console.log(chalk.gray(`       ${item.detail}`));
+      }
+      console.log();
+    }
+    if (swot.opportunities.length > 0) {
+      console.log(chalk.bold.cyan("  Opportunities"));
+      for (const item of swot.opportunities) {
+        console.log(chalk.cyan(`   ◆ ${item.label}`));
+        console.log(chalk.gray(`       ${item.detail}`));
+      }
+      console.log();
+    }
+    if (swot.threats.length > 0) {
+      console.log(chalk.bold.yellow("  Threats"));
+      for (const item of swot.threats) {
+        console.log(chalk.yellow(`   ⚠ ${item.label}`));
+        console.log(chalk.gray(`       ${item.detail}`));
+      }
+    }
+  }
 
   // ── 2. Flags ───────────────────────────────────────────────────────────────
   section("FLAGS");

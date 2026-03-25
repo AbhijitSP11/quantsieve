@@ -4,6 +4,7 @@ import { z } from "zod";
 import { fetchScreenerPage } from "../services/scraper.js";
 import { parseScreenerPage } from "../services/parser.js";
 import { evaluateStock } from "../services/claude.js";
+import { generateSwot } from "../services/swotEngine.js";
 import { buildHtml } from "../services/htmlWriter.js";
 import type { EvaluationInput } from "../types/profile.js";
 
@@ -85,7 +86,8 @@ async function runEvaluation(body: unknown) {
   };
 
   try {
-    const evaluation = await evaluateStock(stockData, input);
+    const swot = generateSwot(stockData);
+    const evaluation = await evaluateStock(stockData, input, swot);
     return { ok: true as const, stock: stockData, evaluation, input };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
