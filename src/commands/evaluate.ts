@@ -130,7 +130,7 @@ export async function evaluateCommand(
   // 9. Save HTML report
   if (!options.noHtml) {
     try {
-      const htmlPath = await saveHtmlReport(stockData, input, evaluation);
+      const htmlPath = await saveHtmlReport(stockData, input, evaluation, swot, trendlyne);
       const rel = htmlPath
         .replace(process.cwd() + "\\", "")
         .replace(process.cwd() + "/", "");
