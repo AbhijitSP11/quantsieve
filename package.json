@@ -9,8 +9,12 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "dev:server": "tsx src/server.ts",
+    "dev:frontend": "cd frontend && npm run dev",
     "build": "tsup src/index.ts src/server.ts --format esm --dts",
-    "start": "node dist/server.js"
+    "build:frontend": "cd frontend && npm run build",
+    "build:all": "npm run build && npm run build:frontend",
+    "start": "node dist/server.js",
+    "setup:frontend": "cd frontend && npm install"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
