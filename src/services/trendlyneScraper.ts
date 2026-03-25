@@ -124,45 +124,105 @@ function parseNum(raw: string | undefined | null): number | null {
 }
 
 
-// ─── Stock ID resolution ──────────────────────────────────────────────────────
+// ─── Stock URL resolution ─────────────────────────────────────────────────────
+// Returns the full equity page URL, e.g. https://trendlyne.com/equity/2143/NATCOPHARM/
+// Tries three strategies in order; returns null only if all fail.
 
-async function resolveStockId(ticker: string): Promise<string | null> {
+async function resolveStockPageUrl(ticker: string): Promise<string | null> {
+  const upperTicker = ticker.toUpperCase();
+
+  // ── Strategy 1: JSON suggest API ─────────────────────────────────────────
   try {
     const res = await fetch(
-      `https://trendlyne.com/search/suggest/?q=${encodeURIComponent(ticker)}`,
+      `https://trendlyne.com/search/suggest/?q=${encodeURIComponent(upperTicker)}`,
       {
         headers: {
           "User-Agent": USER_AGENT,
           Accept: "application/json, text/javascript, */*; q=0.01",
           "X-Requested-With": "XMLHttpRequest",
+          Referer: "https://trendlyne.com/",
         },
         signal: AbortSignal.timeout(8000),
       }
     );
-    if (!res.ok) return null;
-    const data: unknown = await res.json();
+    if (res.ok) {
+      const data: unknown = await res.json();
+      const list: Record<string, unknown>[] = Array.isArray(data)
+        ? (data as Record<string, unknown>[])
+        : Array.isArray((data as Record<string, unknown>)["results"])
+          ? ((data as Record<string, unknown>)["results"] as Record<string, unknown>[])
+          : [];
 
-    const list = Array.isArray(data)
-      ? (data as Record<string, unknown>[])
-      : Array.isArray((data as Record<string, unknown>)["results"])
-        ? ((data as Record<string, unknown>)["results"] as Record<string, unknown>[])
-        : [];
+      // Prefer exact ticker match, fall back to first result
+      const match =
+        list.find(
+          (item) =>
+            String(item["ticker"] ?? item["symbol"] ?? "").toUpperCase() === upperTicker
+        ) ?? list[0];
 
-    for (const item of list) {
-      const t = String(item["ticker"] ?? item["symbol"] ?? "").toUpperCase();
-      if (t === ticker.toUpperCase()) {
-        const id = item["id"] ?? item["pk"];
-        if (id != null) return String(id);
+      if (match !== undefined) {
+        const id = match["pk"] ?? match["id"] ?? match["stock_id"];
+        const sym = String(match["ticker"] ?? match["symbol"] ?? upperTicker).toUpperCase();
+        if (id != null) return `https://trendlyne.com/equity/${id}/${sym}/`;
       }
     }
-    if (list.length > 0) {
-      const first = list[0];
-      if (first !== undefined) {
-        const id = first["id"] ?? first["pk"];
-        if (id != null) return String(id);
+  } catch { /* fall through */ }
+
+  // ── Strategy 2: Search results page → extract equity href ────────────────
+  try {
+    const res = await fetch(
+      `https://trendlyne.com/search/?q=${encodeURIComponent(upperTicker)}`,
+      {
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+          Referer: "https://trendlyne.com/",
+        },
+        signal: AbortSignal.timeout(12000),
+        redirect: "follow",
+      }
+    );
+    if (res.ok) {
+      // If the search auto-redirected to an equity page, use that URL directly
+      if (res.url.includes("/equity/")) return res.url;
+
+      const html = await res.text();
+      const $ = cheerio.load(html);
+
+      // Look for <a href="/equity/{id}/{ticker}/"> links in search results
+      let found: string | null = null;
+      $("a[href*='/equity/']").each((_i, el) => {
+        if (found) return false;
+        const href = $(el).attr("href") ?? "";
+        const m = href.match(/\/equity\/(\d+)\/([^/]+)\//);
+        if (m?.[2] && m[2].toUpperCase() === upperTicker) {
+          found = href.startsWith("http") ? href : `https://trendlyne.com${href}`;
+          return false;
+        }
+      });
+      if (found) return found;
+
+      // Relax: accept any equity link that appears first in search results
+      const firstHref = $("a[href*='/equity/']").first().attr("href");
+      if (firstHref) {
+        return firstHref.startsWith("http")
+          ? firstHref
+          : `https://trendlyne.com${firstHref}`;
       }
     }
-  } catch { /* best-effort */ }
+  } catch { /* fall through */ }
+
+  // ── Strategy 3: Direct canonical URL guess (ticker-only, some stocks work) ─
+  // Trendlyne sometimes accepts /equity/TICKER/ and 301-redirects to the full URL.
+  try {
+    const res = await fetch(`https://trendlyne.com/equity/${upperTicker}/`, {
+      headers: { "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(8000),
+      redirect: "follow",
+    });
+    if (res.ok && res.url.includes("/equity/")) return res.url;
+  } catch { /* fall through */ }
+
   return null;
 }
 
@@ -562,11 +622,14 @@ export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData>
   await new Promise<void>((resolve) => setTimeout(resolve, 1000));
 
   try {
-    const stockId = await resolveStockId(ticker);
-    const pageUrl =
-      stockId !== null
-        ? `https://trendlyne.com/equity/${stockId}/${ticker}/`
-        : `https://trendlyne.com/equity/${ticker}/`;
+    const pageUrl = await resolveStockPageUrl(ticker);
+    if (pageUrl === null) {
+      return {
+        ...EMPTY,
+        fetched: false,
+        error: `Could not resolve Trendlyne page URL for ${ticker} — stock may not be listed or search is unavailable`,
+      };
+    }
 
     const res = await fetch(pageUrl, {
       headers: {
