@@ -5,6 +5,8 @@ import type { EvaluationReport } from "../types/evaluation.js";
 import { STOCK_EVALUATOR_PROMPT } from "../prompts/stockEvaluator.js";
 import { evaluationReportSchema } from "../utils/validators.js";
 import { env } from "../config/env.js";
+import type { SwotResult } from "./swotEngine.js";
+import type { TrendlyneData } from "./trendlyneScraper.js";
 
 let _client: Anthropic | null = null;
 function getClient(): Anthropic {
@@ -12,15 +14,69 @@ function getClient(): Anthropic {
   return _client;
 }
 
+function buildSwotSection(swot: SwotResult): string {
+  const lines: string[] = [
+    `PRE-COMPUTED SWOT ANALYSIS (rule-based, from live data):`,
+    ``,
+    `STRENGTHS (${swot.summary.s}):`,
+    ...swot.strengths.map((s) => `• ${s.label}: ${s.detail}`),
+    ``,
+    `WEAKNESSES (${swot.summary.w}):`,
+    ...swot.weaknesses.map((w) => `• ${w.label}: ${w.detail}`),
+    ``,
+    `OPPORTUNITIES (${swot.summary.o}):`,
+    ...swot.opportunities.map((o) => `• ${o.label}: ${o.detail}`),
+    ``,
+    `THREATS (${swot.summary.t}):`,
+    ...swot.threats.map((t) => `• ${t.label}: ${t.detail}`),
+    ``,
+    `Use these pre-computed signals alongside the raw financial data. Incorporate relevant SWOT items into your quality checks, risk assessment, and verdict reasoning. Flag any SWOT items that are especially relevant to this specific investor's profile.`,
+  ];
+  return lines.join("\n");
+}
+
+function buildTrendlyneSection(tl: TrendlyneData): string {
+  if (!tl.fetched) return "";
+  const lines: string[] = ["SUPPLEMENTARY DATA (from Trendlyne):"];
+  lines.push(`Beta: ${tl.beta !== null ? tl.beta : "N/A"}`);
+  if (tl.analyst_target_price !== null) {
+    lines.push(
+      `Analyst Consensus Target: ₹${tl.analyst_target_price}${tl.analyst_count !== null ? ` (${tl.analyst_count} analysts)` : ""}`
+    );
+  }
+  if (tl.dvm_scores !== null) {
+    lines.push(
+      `DVM Scores: Durability ${tl.dvm_scores.durability ?? "N/A"}/100, Valuation ${tl.dvm_scores.valuation ?? "N/A"}/100, Momentum ${tl.dvm_scores.momentum ?? "N/A"}/100`
+    );
+    if (tl.dvm_scores.label !== null) {
+      lines.push(`Trendlyne Classification: ${tl.dvm_scores.label}`);
+    }
+  }
+  if (tl.retail_sentiment !== null) {
+    lines.push(
+      `Retail Sentiment: ${tl.retail_sentiment.buy_pct ?? "N/A"}% Buy, ${tl.retail_sentiment.sell_pct ?? "N/A"}% Sell, ${tl.retail_sentiment.hold_pct ?? "N/A"}% Hold`
+    );
+  }
+  return lines.join("\n");
+}
+
 export async function evaluateStock(
   stockData: StockData,
-  input: EvaluationInput
+  input: EvaluationInput,
+  swot: SwotResult,
+  trendlyne?: TrendlyneData
 ): Promise<EvaluationReport> {
+  const swotSection = buildSwotSection(swot);
+  const trendlyneSection =
+    trendlyne !== undefined ? buildTrendlyneSection(trendlyne) : "";
+
   const userContent = [
     `LIVE STOCK DATA:\n${JSON.stringify(stockData, null, 2)}`,
     `\nINVESTOR PROFILE:\n${JSON.stringify(input.profile, null, 2)}`,
     `\nENTRY CONTEXT: ${input.entry_context}`,
     input.thesis ? `\nINVESTOR THESIS: ${input.thesis}` : "",
+    `\n${swotSection}`,
+    trendlyneSection.length > 0 ? `\n${trendlyneSection}` : "",
     `\nRun the complete 14-step evaluation. Return ONLY valid JSON matching the EvaluationReport schema. No markdown, no explanation outside the JSON.`,
   ]
     .filter(Boolean)

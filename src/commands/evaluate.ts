@@ -5,14 +5,20 @@ import { parseScreenerPage } from "../services/parser.js";
 import { evaluateStock } from "../services/claude.js";
 import { saveReport } from "../services/reportWriter.js";
 import { saveHtmlReport } from "../services/htmlWriter.js";
+import { generateSwot } from "../services/swotEngine.js";
+import { fetchTrendlyneData } from "../services/trendlyneScraper.js";
 import {
   printHeader,
   printFetchStatus,
+  printSwotStatus,
+  printTrendlyneStatus,
   printFullReport,
   printReportSaved,
   printError,
 } from "../utils/display.js";
 import { exec } from "child_process";
+import type { SwotResult } from "../services/swotEngine.js";
+import type { TrendlyneData } from "../services/trendlyneScraper.js";
 
 interface EvaluateOptions {
   context: EvaluationInput["entry_context"];
@@ -56,7 +62,7 @@ export async function evaluateCommand(
     profile,
   };
 
-  // 2. Scrape
+  // 2. Scrape Screener.in
   let stockData: Awaited<ReturnType<typeof parseScreenerPage>>;
   try {
     const { html } = await fetchScreenerPage(symbol);
@@ -68,46 +74,79 @@ export async function evaluateCommand(
 
   printFetchStatus(stockData);
 
-  // 3. Evaluate via Claude
+  // 3. Rule-based SWOT pre-analysis (no network, instant)
+  const swot: SwotResult = generateSwot(stockData);
+  printSwotStatus(swot);
+
+  // 4. Trendlyne supplementary data (best-effort, non-blocking)
+  let trendlyne: TrendlyneData | null = null;
+  try {
+    trendlyne = await fetchTrendlyneData(symbol);
+    printTrendlyneStatus(trendlyne);
+  } catch {
+    // Trendlyne is supplementary — silently skip on unexpected errors
+  }
+
+  // 5. Evaluate via Claude (with SWOT + Trendlyne in prompt)
   let evaluation: Awaited<ReturnType<typeof evaluateStock>>;
   try {
-    evaluation = await evaluateStock(stockData, input);
+    evaluation = await evaluateStock(
+      stockData,
+      input,
+      swot,
+      trendlyne ?? undefined
+    );
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
 
-  // 4. JSON-only mode
+  // 6. JSON-only mode
   if (options.json) {
-    console.log(JSON.stringify(evaluation, null, 2));
+    console.log(JSON.stringify({ swot, trendlyne, evaluation }, null, 2));
     return;
   }
 
-  // 5. Terminal report
-  printFullReport(evaluation, stockData);
+  // 7. Terminal report
+  printFullReport(evaluation, stockData, swot, trendlyne);
 
-  // 6. Save JSON
+  // 8. Save JSON
   try {
-    const jsonPath = await saveReport(stockData, input, evaluation, options.output);
+    const jsonPath = await saveReport(
+      stockData,
+      input,
+      evaluation,
+      swot,
+      trendlyne,
+      options.output
+    );
     printReportSaved(jsonPath);
   } catch (err) {
-    printError(`Failed to save JSON: ${err instanceof Error ? err.message : String(err)}`);
+    printError(
+      `Failed to save JSON: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
-  // 7. Save HTML report
+  // 9. Save HTML report
   if (!options.noHtml) {
     try {
       const htmlPath = await saveHtmlReport(stockData, input, evaluation);
-      const rel = htmlPath.replace(process.cwd() + "\\", "").replace(process.cwd() + "/", "");
+      const rel = htmlPath
+        .replace(process.cwd() + "\\", "")
+        .replace(process.cwd() + "/", "");
       console.log(`🌐 HTML report saved: ${rel}`);
       if (options.open) {
         openBrowser(htmlPath);
         console.log(`   Opening in browser...\n`);
       } else {
-        console.log(`   Run with --open to launch in browser, or open the file directly.\n`);
+        console.log(
+          `   Run with --open to launch in browser, or open the file directly.\n`
+        );
       }
     } catch (err) {
-      printError(`Failed to save HTML: ${err instanceof Error ? err.message : String(err)}`);
+      printError(
+        `Failed to save HTML: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 }
