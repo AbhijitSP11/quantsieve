@@ -111,516 +111,15 @@ export interface TrendlyneData {
   error: string | null;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-function parseNum(raw: string | undefined | null): number | null {
-  if (!raw) return null;
-  const cleaned = raw.replace(/,/g, "").replace(/[₹%]/g, "").trim();
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? null : n;
-}
-
-
-// ─── Stock URL resolution ─────────────────────────────────────────────────────
-// Returns the full equity page URL, e.g. https://trendlyne.com/equity/2143/NATCOPHARM/
-// Tries three strategies in order; returns null only if all fail.
-
-async function resolveStockPageUrl(ticker: string): Promise<string | null> {
-  const upperTicker = ticker.toUpperCase();
-  console.log(`[Trendlyne] Resolving page URL for ${upperTicker}…`);
-
-  // ── Strategy 1: JSON suggest API ─────────────────────────────────────────
-  try {
-    const suggestUrl = `https://trendlyne.com/search/suggest/?q=${encodeURIComponent(upperTicker)}`;
-    console.log(`[Trendlyne] Strategy 1 — suggest API: ${suggestUrl}`);
-    const res = await fetch(suggestUrl, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest",
-        Referer: "https://trendlyne.com/",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-    console.log(`[Trendlyne] Strategy 1 — HTTP ${res.status}`);
-    if (res.ok) {
-      const data: unknown = await res.json();
-      console.log(`[Trendlyne] Strategy 1 — raw JSON:`, JSON.stringify(data).slice(0, 400));
-      const list: Record<string, unknown>[] = Array.isArray(data)
-        ? (data as Record<string, unknown>[])
-        : Array.isArray((data as Record<string, unknown>)["results"])
-          ? ((data as Record<string, unknown>)["results"] as Record<string, unknown>[])
-          : [];
-
-      const match =
-        list.find(
-          (item) =>
-            String(item["ticker"] ?? item["symbol"] ?? "").toUpperCase() === upperTicker
-        ) ?? list[0];
-
-      if (match !== undefined) {
-        const id = match["pk"] ?? match["id"] ?? match["stock_id"];
-        const sym = String(match["ticker"] ?? match["symbol"] ?? upperTicker).toUpperCase();
-        if (id != null) {
-          const url = `https://trendlyne.com/equity/${id}/${sym}/`;
-          console.log(`[Trendlyne] Strategy 1 — resolved: ${url}`);
-          return url;
-        }
-      }
-      console.log(`[Trendlyne] Strategy 1 — no usable ID in response (${list.length} items)`);
-    }
-  } catch (e) {
-    console.log(`[Trendlyne] Strategy 1 — error: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // ── Strategy 2: Search results page → extract equity href ────────────────
-  try {
-    const searchUrl = `https://trendlyne.com/search/?q=${encodeURIComponent(upperTicker)}`;
-    console.log(`[Trendlyne] Strategy 2 — search page: ${searchUrl}`);
-    const res = await fetch(searchUrl, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
-        Referer: "https://trendlyne.com/",
-      },
-      signal: AbortSignal.timeout(12000),
-      redirect: "follow",
-    });
-    console.log(`[Trendlyne] Strategy 2 — HTTP ${res.status}, final URL: ${res.url}`);
-    if (res.ok) {
-      if (res.url.includes("/equity/")) {
-        console.log(`[Trendlyne] Strategy 2 — auto-redirected to equity page`);
-        return res.url;
-      }
-
-      const html = await res.text();
-      console.log(`[Trendlyne] Strategy 2 — page length: ${html.length} chars`);
-      const $ = cheerio.load(html);
-
-      let found: string | null = null;
-      $("a[href*='/equity/']").each((_i, el) => {
-        if (found) return false;
-        const href = $(el).attr("href") ?? "";
-        const m = href.match(/\/equity\/(\d+)\/([^/]+)\//);
-        if (m?.[2] && m[2].toUpperCase() === upperTicker) {
-          found = href.startsWith("http") ? href : `https://trendlyne.com${href}`;
-          return false;
-        }
-      });
-      if (found) {
-        console.log(`[Trendlyne] Strategy 2 — found exact ticker href: ${found}`);
-        return found;
-      }
-
-      const firstHref = $("a[href*='/equity/']").first().attr("href");
-      if (firstHref) {
-        const url = firstHref.startsWith("http")
-          ? firstHref
-          : `https://trendlyne.com${firstHref}`;
-        console.log(`[Trendlyne] Strategy 2 — using first equity href: ${url}`);
-        return url;
-      }
-      console.log(`[Trendlyne] Strategy 2 — no equity links found on search page`);
-    }
-  } catch (e) {
-    console.log(`[Trendlyne] Strategy 2 — error: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // ── Strategy 3: Direct canonical URL guess ────────────────────────────────
-  try {
-    const directUrl = `https://trendlyne.com/equity/${upperTicker}/`;
-    console.log(`[Trendlyne] Strategy 3 — direct URL: ${directUrl}`);
-    const res = await fetch(directUrl, {
-      headers: { "User-Agent": USER_AGENT },
-      signal: AbortSignal.timeout(8000),
-      redirect: "follow",
-    });
-    console.log(`[Trendlyne] Strategy 3 — HTTP ${res.status}, final URL: ${res.url}`);
-    if (res.ok && res.url.includes("/equity/")) return res.url;
-  } catch (e) {
-    console.log(`[Trendlyne] Strategy 3 — error: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  console.log(`[Trendlyne] All strategies failed — cannot resolve URL for ${upperTicker}`);
-  return null;
-}
-
-// ─── Parse: Beta ─────────────────────────────────────────────────────────────
-
-function parseBeta($: cheerio.CheerioAPI): number | null {
-  // Pattern 1: explicit label near value
-  let found: number | null = null;
-  $("[class*='beta'], [id*='beta']").each((_i, el) => {
-    if (found !== null) return false;
-    const text = $(el).text();
-    const m = text.match(/[\d.]+/);
-    if (m) {
-      const v = parseFloat(m[0]);
-      if (v > 0 && v < 10) { found = v; return false; }
-    }
-  });
-  if (found !== null) return found;
-
-  // Pattern 2: "Beta" label → sibling or next element
-  $("*").each((_i, el) => {
-    if (found !== null) return false;
-    const ownText = $(el).clone().children().remove().end().text().trim();
-    if (/^beta$/i.test(ownText)) {
-      const next = $(el).next().text().trim();
-      const v = parseFloat(next);
-      if (!isNaN(v) && v > 0 && v < 10) { found = v; return false; }
-    }
-  });
-  if (found !== null) return found;
-
-  // Pattern 3: "Beta: 0.85" anywhere in page
-  const m = $("body").text().match(/\bbeta[:\s]+(\d+\.?\d*)/i);
-  if (m?.[1]) {
-    const v = parseFloat(m[1]);
-    if (v > 0 && v < 10) return v;
-  }
-  return null;
-}
-
-// ─── Parse: DVM ──────────────────────────────────────────────────────────────
-
-function parseDvm($: cheerio.CheerioAPI): TrendlyneData["dvm_scores"] {
-  let durability: number | null = null;
-  let valuation: number | null = null;
-  let momentum: number | null = null;
-  let label: string | null = null;
-
-  const searchText =
-    $("[class*='dvm'],[class*='DVM'],[id*='dvm'],[id*='DVM']").text() ||
-    $("body").text();
-
-  const dM = searchText.match(/durability[:\s]+(\d+)/i);
-  const vM = searchText.match(/valuation[:\s]+(\d+)/i);
-  const mM = searchText.match(/momentum[:\s]+(\d+)/i);
-  const lM = searchText.match(/\b([\w\s-]+performer|[\w\s-]+stock)\b/i);
-
-  if (dM?.[1]) durability = parseInt(dM[1]);
-  if (vM?.[1]) valuation = parseInt(vM[1]);
-  if (mM?.[1]) momentum = parseInt(mM[1]);
-  if (lM?.[1]) label = lM[1].trim();
-
-  if (durability === null && valuation === null && momentum === null) return null;
-  return { durability, valuation, momentum, label };
-}
-
-// ─── Parse: Trendlyne SWOT ────────────────────────────────────────────────────
-
-function parseTlSwot($: cheerio.CheerioAPI): TrendlyneData["tl_swot"] {
-  const strengths: TrendlyneSwotItem[] = [];
-  const weaknesses: TrendlyneSwotItem[] = [];
-  const opportunities: TrendlyneSwotItem[] = [];
-  const threats: TrendlyneSwotItem[] = [];
-
-  // Strategy 1: dedicated section containers
-  const swotContainer = $("[class*='swot'],[id*='swot'],[class*='SWOT'],[id*='SWOT']");
-
-  if (swotContainer.length > 0) {
-    swotContainer.each((_i, section) => {
-      const sectionText = $(section).text().toLowerCase();
-      const items: TrendlyneSwotItem[] = [];
-      $(section).find("li, [class*='item'], p").each((_j, el) => {
-        const txt = $(el).text().trim();
-        if (txt.length > 10) items.push({ text: txt });
-      });
-
-      if (sectionText.includes("strength")) strengths.push(...items);
-      else if (sectionText.includes("weakness")) weaknesses.push(...items);
-      else if (sectionText.includes("opportunit")) opportunities.push(...items);
-      else if (sectionText.includes("threat")) threats.push(...items);
-    });
-  }
-
-  // Strategy 2: look for headers followed by lists
-  if (strengths.length + weaknesses.length + opportunities.length + threats.length === 0) {
-    $("h2, h3, h4, [class*='heading'], [class*='title']").each((_i, hEl) => {
-      const hText = $(hEl).text().trim().toLowerCase();
-      let bucket: TrendlyneSwotItem[] | null = null;
-      if (/strength/.test(hText)) bucket = strengths;
-      else if (/weakness/.test(hText)) bucket = weaknesses;
-      else if (/opportunit/.test(hText)) bucket = opportunities;
-      else if (/threat/.test(hText)) bucket = threats;
-      if (!bucket) return;
-
-      $(hEl).nextUntil("h2,h3,h4").find("li").each((_j, li) => {
-        const txt = $(li).text().trim();
-        if (txt.length > 10) bucket!.push({ text: txt });
-      });
-    });
-  }
-
-  // Extract counts anchored to the label words, not the badge suffix letters.
-  // Trendlyne renders e.g. "Strengths25S", "Weakness3W", "Opportunity8O", "Threats2"
-  // (the trailing letter is sometimes absent for Threats).
-  const bodyText = $("body").text();
-
-  const sM = bodyText.match(/strength[s]?\s*(\d+)/i);
-  const wM = bodyText.match(/weakness(?:es)?\s*(\d+)/i);
-  const oM = bodyText.match(/opportunit(?:y|ies)\s*(\d+)/i);
-  const tM = bodyText.match(/threat[s]?\s*(\d+)/i);
-
-  let counts: { s: number; w: number; o: number; t: number } | null = null;
-  if (sM?.[1] ?? wM?.[1] ?? oM?.[1] ?? tM?.[1]) {
-    counts = {
-      s: sM?.[1] ? parseInt(sM[1]) : 0,
-      w: wM?.[1] ? parseInt(wM[1]) : 0,
-      o: oM?.[1] ? parseInt(oM[1]) : 0,
-      t: tM?.[1] ? parseInt(tM[1]) : 0,
-    };
-  }
-
-  // Use counts to infer if we have valid items
-  const totalItems = strengths.length + weaknesses.length + opportunities.length + threats.length;
-  if (totalItems === 0 && counts === null) return null;
-
-  return { strengths, weaknesses, opportunities, threats, counts };
-}
-
-// ─── Parse: Checklist / Score Card ───────────────────────────────────────────
-
-function parseChecklist($: cheerio.CheerioAPI): TrendlyneChecklistItem[] | null {
-  const items: TrendlyneChecklistItem[] = [];
-
-  // Strategy 1: class-based checklist containers
-  $("[class*='checklist'],[class*='scorecard'],[class*='score-card'],[id*='checklist']").each((_i, container) => {
-    // Each row: metric label + assessment label + value
-    $(container).find("tr, [class*='row'], [class*='item']").each((_j, row) => {
-      const cells = $(row).find("td, [class*='cell'], [class*='col']");
-      if (cells.length >= 2) {
-        const metric = cells.eq(0).text().trim();
-        const assessment = cells.eq(1).text().trim();
-        const rawVal = cells.length >= 3 ? cells.eq(2).text().trim() : "";
-        if (metric.length > 2 && assessment.length > 2) {
-          items.push({ metric, assessment, value: parseNum(rawVal) });
-        }
-      }
-    });
-  });
-
-  if (items.length > 0) return items;
-
-  // Strategy 2: look for known metric names near values in tables
-  const knownMetrics: [RegExp, string][] = [
-    [/market\s*cap/i, "Market Capitalization"],
-    [/pe\s*ttm/i, "PE TTM"],
-    [/peg\s*ttm/i, "PEG TTM"],
-    [/price\s*to\s*book/i, "Price to Book"],
-    [/institutions?\s*holding/i, "Institutions holding %"],
-    [/rev\.?\s*growth\s*qtr/i, "Rev. Growth Qtr YoY %"],
-    [/operating\s*revenue\s*growth\s*ttm/i, "Operating Revenue growth TTM %"],
-    [/net\s*profit\s*qtr\s*growth/i, "Net Profit Qtr Growth YoY %"],
-    [/net\s*profit\s*ttm\s*growth/i, "Net Profit TTM Growth %"],
-    [/opm\s*qtr|operating\s*profit\s*margin\s*qtr/i, "Operating Profit Margin Qtr %"],
-    [/opm\s*ttm/i, "OPM TTM %"],
-    [/piotroski/i, "Piotroski Score"],
-    [/relative\s*return.*nifty/i, "Relative returns vs Nifty50 quarter%"],
-    [/relative\s*return.*sector/i, "Relative returns vs Sector quarter%"],
-    [/roe\s*ann/i, "ROE Ann. %"],
-    [/roa\s*ann/i, "RoA Ann. %"],
-  ];
-
-  const assessmentPhrases = [
-    "High in industry", "Low in industry",
-    "Above industry Median", "Below industry Median",
-    "Negative", "Positive", "Average",
-  ];
-
-  $("table tr, [class*='row']").each((_i, row) => {
-    const text = $(row).text();
-    for (const [re, label] of knownMetrics) {
-      if (re.test(text)) {
-        let assessment = "";
-        for (const phrase of assessmentPhrases) {
-          if (text.includes(phrase)) { assessment = phrase; break; }
-        }
-        // Extract trailing number
-        const numM = text.match(/([-\d.]+)\s*$/);
-        const value = numM ? parseNum(numM[1]) : null;
-        if (!items.find((x) => x.metric === label)) {
-          items.push({ metric: label, assessment, value });
-        }
-        break;
-      }
-    }
-  });
-
-  return items.length > 0 ? items : null;
-}
-
-/** Extract normalized key_metrics from a checklist array */
-function extractKeyMetrics(
-  checklist: TrendlyneChecklistItem[]
-): TrendlyneData["key_metrics"] {
-  function find(re: RegExp): number | null {
-    return checklist.find((c) => re.test(c.metric))?.value ?? null;
-  }
-  return {
-    market_cap: find(/market\s*cap/i),
-    pe_ttm: find(/pe\s*ttm/i),
-    peg_ttm: find(/peg\s*ttm/i),
-    price_to_book: find(/price\s*to\s*book/i),
-    institutions_holding_pct: find(/institutions?\s*holding/i),
-    rev_growth_qtr_yoy: find(/rev\.?\s*growth\s*qtr/i),
-    operating_revenue_growth_ttm: find(/operating\s*revenue\s*growth\s*ttm/i),
-    net_profit_qtr_growth_yoy: find(/net\s*profit\s*qtr\s*growth/i),
-    net_profit_ttm_growth: find(/net\s*profit\s*ttm\s*growth/i),
-    opm_qtr: find(/opm\s*qtr|operating\s*profit\s*margin\s*qtr/i),
-    opm_ttm: find(/opm\s*ttm/i),
-    piotroski_score: find(/piotroski/i),
-    relative_return_nifty50_qtr: find(/relative\s*return.*nifty/i),
-    relative_return_sector_qtr: find(/relative\s*return.*sector/i),
-    roe_annual: find(/roe\s*ann/i),
-    roa_annual: find(/roa\s*ann/i),
-  };
-}
-
-// ─── Parse: Analyst Consensus ────────────────────────────────────────────────
-
-function parseAnalystConsensus($: cheerio.CheerioAPI): TrendlyneData["analyst_consensus"] {
-  const searchText =
-    $("[class*='analyst'],[class*='consensus'],[class*='recommendation'],[id*='analyst']").text() ||
-    $("body").text();
-
-  // Recommendation label
-  const recM = searchText.match(/\b(strong\s*buy|strong\s*sell|buy|sell|hold)\b/i);
-  const recommendation = recM?.[1] ? recM[1].toUpperCase().replace(/\s+/g, "_") : null;
-
-  // Analyst count
-  const countM = searchText.match(/(\d+)\s*analyst/i);
-  const count = countM?.[1] ? parseInt(countM[1]) : null;
-
-  // Target price
-  const priceM = searchText.match(/(?:target|consensus)[^₹\d]*[₹Rs.]+\s*([\d,]+)/i);
-  const target_price = priceM?.[1] ? parseNum(priceM[1]) : null;
-
-  // Breakdown: "3 Strong Sell, 3 Hold, 2 Buy, 3 Strong Buy"
-  // or table cells with those labels
-  const ssM = searchText.match(/(\d+)\s*strong\s*sell/i);
-  const sM = /strong\s*sell/i.test(searchText)
-    ? null  // avoid double-counting — handle below
-    : searchText.match(/(\d+)\s*sell\b/i);
-  const hM = searchText.match(/(\d+)\s*hold\b/i);
-  const bM = /strong\s*buy/i.test(searchText)
-    ? null
-    : searchText.match(/(\d+)\s*buy\b/i);
-  const sbM = searchText.match(/(\d+)\s*strong\s*buy/i);
-
-  // Re-extract sell/buy excluding "strong" prefix
-  const sellOnlyM = searchText.match(/(?<!strong\s)(\d+)\s*sell\b/i);
-  const buyOnlyM = searchText.match(/(?<!strong\s)(\d+)\s*buy\b/i);
-
-  const breakdown =
-    ssM || hM || sbM
-      ? {
-          strong_sell: ssM?.[1] ? parseInt(ssM[1]) : null,
-          sell: sellOnlyM?.[1] ? parseInt(sellOnlyM[1]) : null,
-          hold: hM?.[1] ? parseInt(hM[1]) : null,
-          buy: buyOnlyM?.[1] ? parseInt(buyOnlyM[1]) : null,
-          strong_buy: sbM?.[1] ? parseInt(sbM[1]) : null,
-        }
-      : null;
-
-  if (!recommendation && !count && !target_price) return null;
-  return { recommendation, count, target_price, breakdown };
-}
-
-// ─── Parse: Support & Resistance ─────────────────────────────────────────────
-
-function parseSupportResistance($: cheerio.CheerioAPI): TrendlyneData["support_resistance"] {
-  const text =
-    $("[class*='support'],[class*='resistance'],[id*='support'],[id*='resistance']").text() ||
-    $("body").text();
-
-  // "First Resistance 962.1 Second Resistance 974.4 Third Resistance 992.9"
-  const r1 = text.match(/first\s*resistance[:\s]*([\d.]+)/i);
-  const r2 = text.match(/second\s*resistance[:\s]*([\d.]+)/i);
-  const r3 = text.match(/third\s*resistance[:\s]*([\d.]+)/i);
-  const s1 = text.match(/first\s*support[:\s]*([\d.]+)/i);
-  const s2 = text.match(/second\s*support[:\s]*([\d.]+)/i);
-  const s3 = text.match(/third\s*support[:\s]*([\d.]+)/i);
-
-  const anyFound = r1 ?? r2 ?? r3 ?? s1 ?? s2 ?? s3;
-  if (!anyFound) return null;
-
-  return {
-    resistance: [
-      r1?.[1] ? parseNum(r1[1]) : null,
-      r2?.[1] ? parseNum(r2[1]) : null,
-      r3?.[1] ? parseNum(r3[1]) : null,
-    ],
-    support: [
-      s1?.[1] ? parseNum(s1[1]) : null,
-      s2?.[1] ? parseNum(s2[1]) : null,
-      s3?.[1] ? parseNum(s3[1]) : null,
-    ],
-  };
-}
-
-// ─── Parse: Moving Averages ───────────────────────────────────────────────────
-
-function parseMovingAverages($: cheerio.CheerioAPI): TrendlyneData["moving_averages"] {
-  const text =
-    $("[class*='moving'],[class*='ema'],[class*='sma'],[id*='moving']").text() ||
-    $("body").text();
-
-  const bullishM = text.match(/bullish[:\s]+(\d+)/i) ?? text.match(/(\d+)\s*bullish/i);
-  const bearishM = text.match(/bearish[:\s]+(\d+)/i) ?? text.match(/(\d+)\s*bearish/i);
-
-  if (!bullishM && !bearishM) return null;
-  return {
-    bullish: bullishM?.[1] ? parseInt(bullishM[1]) : null,
-    bearish: bearishM?.[1] ? parseInt(bearishM[1]) : null,
-  };
-}
-
-// ─── Parse: Shareholding ─────────────────────────────────────────────────────
-
-function parseShareholding($: cheerio.CheerioAPI): TrendlyneData["shareholding"] {
-  const text =
-    $("[class*='shareholding'],[class*='ownership'],[id*='shareholding']").text() ||
-    $("body").text();
-
-  const proM = text.match(/promoter[s]?[:\s]+([\d.]+)\s*%/i);
-  const fiiM = text.match(/fii[s]?[:\s]+([\d.]+)\s*%/i);
-  const diiM = text.match(/dii[s]?[:\s]+([\d.]+)\s*%/i);
-  const pubM = text.match(/public[:\s]+([\d.]+)\s*%/i);
-
-  if (!proM && !fiiM && !diiM) return null;
-  return {
-    promoters: proM?.[1] ? parseNum(proM[1]) : null,
-    fii: fiiM?.[1] ? parseNum(fiiM[1]) : null,
-    dii: diiM?.[1] ? parseNum(diiM[1]) : null,
-    public_holding: pubM?.[1] ? parseNum(pubM[1]) : null,
-  };
-}
-
-// ─── Parse: Retail Sentiment ──────────────────────────────────────────────────
-
-function parseRetailSentiment($: cheerio.CheerioAPI): TrendlyneData["retail_sentiment"] {
-  const sentEl = $("[class*='sentiment'],[class*='poll'],[class*='retail']");
-  if (sentEl.length === 0) return null;
-  const text = sentEl.text();
-  const buyM = text.match(/buy[:\s]*([\d.]+)\s*%/i);
-  const sellM = text.match(/sell[:\s]*([\d.]+)\s*%/i);
-  const holdM = text.match(/hold[:\s]*([\d.]+)\s*%/i);
-  const votesM = text.match(/([\d,]+)\s*(?:votes?|people|users)/i);
-  if (!buyM && !sellM && !holdM) return null;
-  return {
-    buy_pct: buyM?.[1] ? parseFloat(buyM[1]) : null,
-    sell_pct: sellM?.[1] ? parseFloat(sellM[1]) : null,
-    hold_pct: holdM?.[1] ? parseFloat(holdM[1]) : null,
-    total_votes: votesM?.[1] ? parseNum(votesM[1]) : null,
-  };
-}
-
-// ─── Main export ──────────────────────────────────────────────────────────────
+// Trendlyne official embed widget endpoints — no auth or numeric stock ID needed.
+// tl-widgets.js fetches these URLs server-side and injects the returned HTML.
+const WIDGET_BASE = "https://trendlyne.com/web-widget";
+const WIDGET_PARAMS = "posCol=00A25B&primaryCol=006AFF&negCol=EB3B00&neuCol=F7941E";
 
 const EMPTY: TrendlyneData = {
   beta: null,
@@ -640,96 +139,350 @@ const EMPTY: TrendlyneData = {
   error: null,
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function parseNum(raw: string | undefined | null): number | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/,/g, "").replace(/[₹%]/g, "").trim();
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
+
+// ─── Widget fetcher ───────────────────────────────────────────────────────────
+
+type WidgetType = "swot-widget" | "technical-widget" | "checklist-widget";
+
+async function fetchWidget(
+  type: WidgetType,
+  ticker: string
+): Promise<cheerio.CheerioAPI | null> {
+  const url = `${WIDGET_BASE}/${type}/Poppins/${ticker.toUpperCase()}/?${WIDGET_PARAMS}`;
+  console.log(`[Trendlyne] Fetching ${type}: ${url}`);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+        Referer: "https://trendlyne.com/",
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    console.log(`[Trendlyne] ${type} → HTTP ${res.status}`);
+    if (!res.ok) return null;
+    const html = await res.text();
+    console.log(`[Trendlyne] ${type} → ${html.length} chars`);
+    // If only a CSS stub was returned the widget is JS-rendered — nothing useful to parse
+    if (html.length < 500) {
+      console.log(`[Trendlyne] ${type} → too short, likely JS-rendered shell, skipping`);
+      return null;
+    }
+    return cheerio.load(html);
+  } catch (e) {
+    console.log(`[Trendlyne] ${type} error: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+// ─── SWOT widget parser ───────────────────────────────────────────────────────
+// The SWOT widget is server-rendered and returns real HTML.
+// Structure: headings (h3/h4) for each quadrant + <ul><li> items beneath them.
+
+function parseSwotWidget($: cheerio.CheerioAPI): TrendlyneData["tl_swot"] {
+  const strengths: TrendlyneSwotItem[] = [];
+  const weaknesses: TrendlyneSwotItem[] = [];
+  const opportunities: TrendlyneSwotItem[] = [];
+  const threats: TrendlyneSwotItem[] = [];
+
+  function bucketFor(text: string): TrendlyneSwotItem[] | null {
+    const t = text.toLowerCase();
+    if (/strength/.test(t)) return strengths;
+    if (/weakness/.test(t)) return weaknesses;
+    if (/opportunit/.test(t)) return opportunities;
+    if (/threat/.test(t)) return threats;
+    return null;
+  }
+
+  // Strategy 1: heading → next sibling <ul>/<li>
+  $("h1,h2,h3,h4,h5,h6").each((_i, hEl) => {
+    const hText = $(hEl).text().trim();
+    const bucket = bucketFor(hText);
+    if (!bucket) return;
+    // Items in the immediately following <ul>
+    $(hEl).nextAll("ul").first().find("li").each((_j, li) => {
+      const txt = $(li).text().trim();
+      if (txt.length > 5) bucket.push({ text: txt });
+    });
+    // Some widgets flatten lists as <li> siblings (no wrapping <ul>)
+    if (bucket.length === 0) {
+      $(hEl).nextUntil("h1,h2,h3,h4,h5,h6", "li").each((_j, li) => {
+        const txt = $(li).text().trim();
+        if (txt.length > 5) bucket.push({ text: txt });
+      });
+    }
+  });
+
+  // Strategy 2: class-based containers
+  if (strengths.length + weaknesses.length + opportunities.length + threats.length === 0) {
+    $("[class*='strength'],[class*='weakness'],[class*='opportunit'],[class*='threat']").each(
+      (_i, section) => {
+        const cls = ($(section).attr("class") ?? "").toLowerCase();
+        const bucket = bucketFor(cls) ?? bucketFor($(section).text());
+        if (!bucket) return;
+        $(section).find("li,p,[class*='item']").each((_j, el) => {
+          const txt = $(el).text().trim();
+          if (txt.length > 5) bucket.push({ text: txt });
+        });
+      }
+    );
+  }
+
+  // Counts: anchor to label words to avoid matching stray S/W/O/T letters elsewhere
+  const bodyText = $("body").text();
+  const sM = bodyText.match(/strength[s]?\s*(\d+)/i);
+  const wM = bodyText.match(/weakness(?:es)?\s*(\d+)/i);
+  const oM = bodyText.match(/opportunit(?:y|ies)\s*(\d+)/i);
+  const tM = bodyText.match(/threat[s]?\s*(\d+)/i);
+
+  let counts: { s: number; w: number; o: number; t: number } | null = null;
+  if (sM?.[1] ?? wM?.[1] ?? oM?.[1] ?? tM?.[1]) {
+    counts = {
+      s: sM?.[1] ? parseInt(sM[1]) : strengths.length,
+      w: wM?.[1] ? parseInt(wM[1]) : weaknesses.length,
+      o: oM?.[1] ? parseInt(oM[1]) : opportunities.length,
+      t: tM?.[1] ? parseInt(tM[1]) : threats.length,
+    };
+  }
+
+  const totalItems =
+    strengths.length + weaknesses.length + opportunities.length + threats.length;
+  if (totalItems === 0 && counts === null) return null;
+
+  console.log(
+    `[Trendlyne] SWOT parsed: counts=${JSON.stringify(counts)}, items=${totalItems}`
+  );
+  return { strengths, weaknesses, opportunities, threats, counts };
+}
+
+// ─── Technical widget parser ──────────────────────────────────────────────────
+// The technical widget is JS-rendered; parse whatever Cheerio can see.
+
+function parseTechnicalWidget($: cheerio.CheerioAPI): {
+  beta: number | null;
+  dvm_scores: TrendlyneData["dvm_scores"];
+  support_resistance: TrendlyneData["support_resistance"];
+  moving_averages: TrendlyneData["moving_averages"];
+} {
+  const body = $("body").text();
+
+  // Beta
+  let beta: number | null = null;
+  const betaM = body.match(/\bbeta[:\s]+(\d+\.?\d*)/i);
+  if (betaM?.[1]) {
+    const v = parseFloat(betaM[1]);
+    if (v > 0 && v < 10) beta = v;
+  }
+
+  // DVM scores
+  const dM = body.match(/durability[:\s]+(\d+)/i);
+  const vM = body.match(/valuation[:\s]+(\d+)/i);
+  const mM = body.match(/momentum[:\s]+(\d+)/i);
+  const dvm_scores =
+    dM?.[1] ?? vM?.[1] ?? mM?.[1]
+      ? {
+          durability: dM?.[1] ? parseInt(dM[1]) : null,
+          valuation: vM?.[1] ? parseInt(vM[1]) : null,
+          momentum: mM?.[1] ? parseInt(mM[1]) : null,
+          label: null,
+        }
+      : null;
+
+  // Support / Resistance
+  const r1 = body.match(/first\s*resistance[:\s]*([\d.]+)/i);
+  const r2 = body.match(/second\s*resistance[:\s]*([\d.]+)/i);
+  const r3 = body.match(/third\s*resistance[:\s]*([\d.]+)/i);
+  const s1 = body.match(/first\s*support[:\s]*([\d.]+)/i);
+  const s2 = body.match(/second\s*support[:\s]*([\d.]+)/i);
+  const s3 = body.match(/third\s*support[:\s]*([\d.]+)/i);
+  const support_resistance =
+    r1 ?? s1
+      ? {
+          resistance: [
+            r1?.[1] ? parseNum(r1[1]) : null,
+            r2?.[1] ? parseNum(r2[1]) : null,
+            r3?.[1] ? parseNum(r3[1]) : null,
+          ] as [number | null, number | null, number | null],
+          support: [
+            s1?.[1] ? parseNum(s1[1]) : null,
+            s2?.[1] ? parseNum(s2[1]) : null,
+            s3?.[1] ? parseNum(s3[1]) : null,
+          ] as [number | null, number | null, number | null],
+        }
+      : null;
+
+  // Moving averages
+  const bullM =
+    body.match(/bullish(?:\s*moving\s*averages?)?[:\s]+(\d+)/i) ??
+    body.match(/(\d+)\s*bullish/i);
+  const bearM =
+    body.match(/bearish(?:\s*moving\s*averages?)?[:\s]+(\d+)/i) ??
+    body.match(/(\d+)\s*bearish/i);
+  const moving_averages =
+    bullM ?? bearM
+      ? {
+          bullish: bullM?.[1] ? parseInt(bullM[1]) : null,
+          bearish: bearM?.[1] ? parseInt(bearM[1]) : null,
+        }
+      : null;
+
+  return { beta, dvm_scores, support_resistance, moving_averages };
+}
+
+// ─── Checklist widget parser ──────────────────────────────────────────────────
+// The checklist widget is JS-rendered; parse what Cheerio can see.
+
+function parseChecklistWidget($: cheerio.CheerioAPI): TrendlyneChecklistItem[] | null {
+  const items: TrendlyneChecklistItem[] = [];
+
+  // Try table rows first (most structured)
+  $("tr").each((_i, row) => {
+    const cells = $(row).find("td,th");
+    if (cells.length >= 2) {
+      const metric = cells.eq(0).text().trim();
+      const assessment = cells.eq(1).text().trim();
+      const valRaw = cells.length >= 3 ? cells.eq(2).text().trim() : "";
+      if (metric.length > 2 && !/^metric$/i.test(metric)) {
+        items.push({ metric, assessment, value: parseNum(valRaw) });
+      }
+    }
+  });
+
+  if (items.length > 0) return items;
+
+  // Fallback: scan body text for known metric names
+  const knownMetrics: [RegExp, string][] = [
+    [/market\s*cap/i, "Market Capitalization"],
+    [/pe\s*ttm/i, "PE TTM"],
+    [/peg\s*ttm/i, "PEG TTM"],
+    [/price\s*to\s*book/i, "Price to Book"],
+    [/institutions?\s*holding/i, "Institutions holding %"],
+    [/rev\.?\s*growth\s*qtr/i, "Rev. Growth Qtr YoY %"],
+    [/operating\s*revenue\s*growth\s*ttm/i, "Operating Revenue growth TTM %"],
+    [/net\s*profit\s*qtr\s*growth/i, "Net Profit Qtr Growth YoY %"],
+    [/net\s*profit\s*ttm\s*growth/i, "Net Profit TTM Growth %"],
+    [/opm\s*qtr|operating\s*profit\s*margin\s*qtr/i, "OPM Qtr %"],
+    [/opm\s*ttm/i, "OPM TTM %"],
+    [/piotroski/i, "Piotroski Score"],
+    [/relative\s*return.*nifty/i, "Relative return vs Nifty50 Qtr %"],
+    [/relative\s*return.*sector/i, "Relative return vs Sector Qtr %"],
+    [/roe\s*ann/i, "ROE Ann. %"],
+    [/roa\s*ann/i, "RoA Ann. %"],
+  ];
+  const assessmentPhrases = [
+    "High in industry", "Low in industry",
+    "Above industry Median", "Below industry Median",
+    "Average Financials", "Negative", "Positive",
+  ];
+  const bodyText = $("body").text();
+  for (const [re, label] of knownMetrics) {
+    const idx = bodyText.search(re);
+    if (idx === -1) continue;
+    const snippet = bodyText.slice(idx, idx + 120);
+    let assessment = "";
+    for (const phrase of assessmentPhrases) {
+      if (snippet.includes(phrase)) { assessment = phrase; break; }
+    }
+    const numM = snippet.match(/([-\d.]+)\s*$/);
+    if (!items.find((x) => x.metric === label)) {
+      items.push({ metric: label, assessment, value: numM ? parseNum(numM[1]) : null });
+    }
+  }
+
+  return items.length > 0 ? items : null;
+}
+
+function extractKeyMetrics(
+  checklist: TrendlyneChecklistItem[]
+): TrendlyneData["key_metrics"] {
+  function find(re: RegExp): number | null {
+    return checklist.find((c) => re.test(c.metric))?.value ?? null;
+  }
+  return {
+    market_cap: find(/market\s*cap/i),
+    pe_ttm: find(/pe\s*ttm/i),
+    peg_ttm: find(/peg\s*ttm/i),
+    price_to_book: find(/price\s*to\s*book/i),
+    institutions_holding_pct: find(/institutions?\s*holding/i),
+    rev_growth_qtr_yoy: find(/rev\.?\s*growth\s*qtr/i),
+    operating_revenue_growth_ttm: find(/operating\s*revenue\s*growth\s*ttm/i),
+    net_profit_qtr_growth_yoy: find(/net\s*profit\s*qtr\s*growth/i),
+    net_profit_ttm_growth: find(/net\s*profit\s*ttm\s*growth/i),
+    opm_qtr: find(/opm\s*qtr/i),
+    opm_ttm: find(/opm\s*ttm/i),
+    piotroski_score: find(/piotroski/i),
+    relative_return_nifty50_qtr: find(/relative\s*return.*nifty/i),
+    relative_return_sector_qtr: find(/relative\s*return.*sector/i),
+    roe_annual: find(/roe\s*ann/i),
+    roa_annual: find(/roa\s*ann/i),
+  };
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
+
 export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData> {
   console.log(`[Trendlyne] Starting fetch for ${ticker.toUpperCase()}`);
+  // Brief delay after Screener.in scrape
   await new Promise<void>((resolve) => setTimeout(resolve, 1000));
 
   try {
-    const pageUrl = await resolveStockPageUrl(ticker);
-    if (pageUrl === null) {
-      console.log(`[Trendlyne] URL resolution failed — aborting`);
-      return {
-        ...EMPTY,
-        fetched: false,
-        error: `Could not resolve Trendlyne page URL for ${ticker} — stock may not be listed or search is unavailable`,
-      };
-    }
+    // Fetch all three widgets in parallel — widget URLs only need the ticker symbol
+    const [swot$, tech$, checklist$] = await Promise.all([
+      fetchWidget("swot-widget", ticker),
+      fetchWidget("technical-widget", ticker),
+      fetchWidget("checklist-widget", ticker),
+    ]);
 
-    console.log(`[Trendlyne] Fetching equity page: ${pageUrl}`);
-    const res = await fetch(pageUrl, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        Connection: "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-      },
-      signal: AbortSignal.timeout(15000),
-      redirect: "follow",
-    });
+    // Parse each widget independently
+    const tl_swot = swot$ ? parseSwotWidget(swot$) : null;
 
-    console.log(`[Trendlyne] Equity page — HTTP ${res.status}, final URL: ${res.url}`);
+    const techResult = tech$
+      ? parseTechnicalWidget(tech$)
+      : { beta: null, dvm_scores: null, support_resistance: null, moving_averages: null };
 
-    if (!res.ok) {
-      return { ...EMPTY, fetched: false, error: `Trendlyne returned HTTP ${res.status}` };
-    }
-
-    const html = await res.text();
-    console.log(`[Trendlyne] Page length: ${html.length} chars`);
-
-    if (html.length < 1000 || (html.includes("login") && !html.includes("equity"))) {
-      console.log(`[Trendlyne] Page appears to be a login wall or empty`);
-      return {
-        ...EMPTY,
-        fetched: false,
-        error: "Trendlyne page requires login or returned minimal content",
-      };
-    }
-
-    const $ = cheerio.load(html);
-
-    const beta = parseBeta($);
-    const tl_swot = parseTlSwot($);
-    const dvm_scores = parseDvm($);
-    const checklist = parseChecklist($);
+    const checklist = checklist$ ? parseChecklistWidget(checklist$) : null;
     const key_metrics = checklist ? extractKeyMetrics(checklist) : null;
-    const analyst_consensus = parseAnalystConsensus($);
-    const support_resistance = parseSupportResistance($);
-    const moving_averages = parseMovingAverages($);
-    const shareholding = parseShareholding($);
-    const retail_sentiment = parseRetailSentiment($);
 
-    console.log(`[Trendlyne] Parsed results:`, {
-      beta,
-      swot_counts: tl_swot?.counts ?? null,
-      swot_items: tl_swot
-        ? { s: tl_swot.strengths.length, w: tl_swot.weaknesses.length, o: tl_swot.opportunities.length, t: tl_swot.threats.length }
-        : null,
-      dvm_scores,
-      checklist_rows: checklist?.length ?? 0,
-      analyst_consensus,
-      support_resistance,
-      moving_averages,
-      shareholding,
-      retail_sentiment,
-    });
+    const { beta, dvm_scores, support_resistance, moving_averages } = techResult;
 
     // Back-compat aliases
     const swot_counts = tl_swot?.counts ?? null;
-    const analyst_target_price = analyst_consensus?.target_price ?? null;
-    const analyst_count = analyst_consensus?.count ?? null;
+    const analyst_target_price = null;
+    const analyst_count = null;
 
     const anyDataFound =
-      beta !== null ||
       tl_swot !== null ||
+      beta !== null ||
       dvm_scores !== null ||
       checklist !== null ||
-      analyst_consensus !== null ||
       support_resistance !== null ||
       moving_averages !== null;
 
-    console.log(`[Trendlyne] anyDataFound: ${anyDataFound}`);
+    console.log(`[Trendlyne] Results summary:`, {
+      swot_counts,
+      swot_items: tl_swot
+        ? {
+            s: tl_swot.strengths.length,
+            w: tl_swot.weaknesses.length,
+            o: tl_swot.opportunities.length,
+            t: tl_swot.threats.length,
+          }
+        : null,
+      dvm_scores,
+      checklist_rows: checklist?.length ?? 0,
+      support_resistance,
+      moving_averages,
+      beta,
+      anyDataFound,
+    });
 
     return {
       beta,
@@ -738,15 +491,17 @@ export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData>
       dvm_scores,
       checklist,
       key_metrics,
-      analyst_consensus,
+      analyst_consensus: null,   // not available from widgets
       analyst_target_price,
       analyst_count,
       support_resistance,
       moving_averages,
-      shareholding,
-      retail_sentiment,
+      shareholding: null,        // not available from widgets
+      retail_sentiment: null,    // not available from widgets
       fetched: anyDataFound,
-      error: anyDataFound ? null : "No structured data could be extracted from Trendlyne",
+      error: anyDataFound
+        ? null
+        : "No data extracted — SWOT widget may be empty, technical/checklist widgets are JS-rendered",
     };
   } catch (err) {
     return {
