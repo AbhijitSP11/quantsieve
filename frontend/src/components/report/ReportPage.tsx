@@ -10,6 +10,7 @@ import QualityChecks from "./QualityChecks";
 import CompatibilitySection from "./CompatibilitySection";
 import VerdictSection from "./VerdictSection";
 import BenchmarksSection from "./BenchmarksSection";
+import StockNews from "../news/StockNews";
 
 interface Props {
   result: EvaluateResponse;
@@ -81,6 +82,12 @@ export default function ReportPage({ result, onBack }: Props) {
         <CompatibilitySection evaluation={evaluation} />
         <VerdictSection evaluation={evaluation} />
         <BenchmarksSection evaluation={evaluation} />
+
+        {/* Latest News & Disclosures — loads independently, does not block report */}
+        <StockNews
+          symbol={stock.ticker}
+          companyName={stock.company_name ?? undefined}
+        />
 
         {/* Data Gaps */}
         {evaluation.data_gaps.length > 0 && (

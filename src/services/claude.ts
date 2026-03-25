@@ -7,6 +7,7 @@ import { evaluationReportSchema } from "../utils/validators.js";
 import { env } from "../config/env.js";
 import type { SwotResult } from "./swotEngine.js";
 import type { TrendlyneData } from "./trendlyneScraper.js";
+import type { NewsItem } from "./news/types.js";
 
 let _client: Anthropic | null = null;
 function getClient(): Anthropic {
@@ -60,15 +61,40 @@ function buildTrendlyneSection(tl: TrendlyneData): string {
   return lines.join("\n");
 }
 
+function buildNewsSection(newsItems: NewsItem[]): string {
+  if (newsItems.length === 0) return "";
+  const top = newsItems.slice(0, 10); // cap tokens
+  const official = top.filter((n) => n.sourceType === "official_exchange");
+  const media = top.filter((n) => n.sourceType === "media");
+  const lines: string[] = ["RECENT NEWS & DISCLOSURES (last 30 days):"];
+  for (const item of official) {
+    lines.push(
+      `[OFFICIAL - ${item.exchange}] ${item.publishedAt.slice(0, 10)}: ${item.title}`
+    );
+  }
+  for (const item of media) {
+    lines.push(
+      `[NEWS - ${item.publisher}] ${item.publishedAt.slice(0, 10)}: ${item.title}${item.summary ? ` — ${item.summary.slice(0, 100)}` : ""}`
+    );
+  }
+  lines.push(
+    "\nConsider these recent developments in your risk assessment and flags. If any news item represents a material event (regulatory action, management change, major contract, earnings surprise), flag it in your analysis."
+  );
+  return lines.join("\n");
+}
+
 export async function evaluateStock(
   stockData: StockData,
   input: EvaluationInput,
   swot: SwotResult,
-  trendlyne?: TrendlyneData
+  trendlyne?: TrendlyneData,
+  recentNews?: NewsItem[]
 ): Promise<EvaluationReport> {
   const swotSection = buildSwotSection(swot);
   const trendlyneSection =
     trendlyne !== undefined ? buildTrendlyneSection(trendlyne) : "";
+  const newsSection =
+    recentNews && recentNews.length > 0 ? buildNewsSection(recentNews) : "";
 
   const userContent = [
     `LIVE STOCK DATA:\n${JSON.stringify(stockData, null, 2)}`,
@@ -77,6 +103,7 @@ export async function evaluateStock(
     input.thesis ? `\nINVESTOR THESIS: ${input.thesis}` : "",
     `\n${swotSection}`,
     trendlyneSection.length > 0 ? `\n${trendlyneSection}` : "",
+    newsSection.length > 0 ? `\n${newsSection}` : "",
     `\nRun the complete 14-step evaluation. Return ONLY valid JSON matching the EvaluationReport schema. No markdown, no explanation outside the JSON.`,
   ]
     .filter(Boolean)

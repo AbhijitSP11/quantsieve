@@ -9,6 +9,12 @@ import { generateSwot } from "../services/swotEngine.js";
 import { fetchTrendlyneData } from "../services/trendlyneScraper.js";
 import { buildHtml } from "../services/htmlWriter.js";
 import type { EvaluationInput } from "../types/profile.js";
+import { fetchAllNews } from "../services/news/newsAggregator.js";
+import type { NewsResponse } from "../services/news/types.js";
+
+// ── News cache (15 min TTL per symbol) ────────────────────────────────────────
+const newsCache = new Map<string, { data: NewsResponse; expiresAt: number }>();
+const NEWS_TTL_MS = 15 * 60 * 1000;
 
 const PUBLIC_DIR = path.resolve(process.cwd(), "dist/public");
 
@@ -93,22 +99,29 @@ async function runEvaluation(body: unknown) {
   // 2. Rule-based SWOT (instant, no network)
   const swot = generateSwot(stockData);
 
-  // 3. Trendlyne supplementary data (best-effort, non-blocking on failure)
-  const trendlyne = await fetchTrendlyneData(symbol).catch(() => null);
+  // 3. Trendlyne + news in parallel (both best-effort)
+  const [trendlyne, newsResult] = await Promise.all([
+    fetchTrendlyneData(symbol).catch(() => null),
+    fetchAllNews(symbol, stockData.company_name ?? undefined).catch(() => null),
+  ]);
 
-  // 4. Claude 14-step evaluation
+  const recentNews = newsResult?.items ?? [];
+
+  // 4. Claude 14-step evaluation (with news context)
   try {
     const evaluation = await evaluateStock(
       stockData,
       input,
       swot,
-      trendlyne ?? undefined
+      trendlyne ?? undefined,
+      recentNews
     );
     return {
       ok: true as const,
       stock: stockData,
       swot,
       trendlyne,
+      news: newsResult,
       evaluation,
       input,
     };
@@ -174,6 +187,31 @@ app.post("/api/evaluate/html", async (req: Request, res: Response) => {
   );
   res.setHeader("Content-Type", "text/html");
   res.send(html);
+});
+
+// GET /api/stocks/:symbol/news — independent, cached, non-blocking
+app.get("/api/stocks/:symbol/news", async (req: Request, res: Response) => {
+  const rawSym = req.params["symbol"] ?? "";
+  const symbol = (Array.isArray(rawSym) ? (rawSym[0] ?? "") : rawSym).toUpperCase();
+  if (!symbol) { res.status(400).json({ error: "symbol required" }); return; }
+
+  const companyName = typeof req.query["companyName"] === "string" ? req.query["companyName"] : undefined;
+  const bseCode = typeof req.query["bseCode"] === "string" ? req.query["bseCode"] : undefined;
+  const cacheKey = `${symbol}:${companyName ?? ""}`;
+
+  const cached = newsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    res.json(cached.data);
+    return;
+  }
+
+  try {
+    const data = await fetchAllNews(symbol, companyName, bseCode);
+    newsCache.set(cacheKey, { data, expiresAt: Date.now() + NEWS_TTL_MS });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "News fetch failed" });
+  }
 });
 
 // ── SPA catch-all: serve index.html for all non-API GET routes ────────────────
