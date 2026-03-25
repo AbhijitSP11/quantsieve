@@ -88,7 +88,7 @@ async function runEvaluation(body: unknown) {
   try {
     const swot = generateSwot(stockData);
     const evaluation = await evaluateStock(stockData, input, swot);
-    return { ok: true as const, stock: stockData, evaluation, input };
+    return { ok: true as const, stock: stockData, evaluation, input, swot };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false as const, status: 500, error: message };
@@ -118,7 +118,7 @@ app.post("/api/evaluate/html", async (req: Request, res: Response) => {
       </div></body></html>`);
     return;
   }
-  const html = buildHtml(result.evaluation, result.stock, result.input);
+  const html = buildHtml(result.evaluation, result.stock, result.input, result.swot);
   res.setHeader("Content-Type", "text/html");
   res.send(html);
 });

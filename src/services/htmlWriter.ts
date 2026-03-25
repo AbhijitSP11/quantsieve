@@ -3,6 +3,8 @@ import path from "path";
 import type { EvaluationReport } from "../types/evaluation.js";
 import type { StockData } from "../types/stock.js";
 import type { EvaluationInput } from "../types/profile.js";
+import type { SwotResult } from "./swotEngine.js";
+import type { TrendlyneData } from "./trendlyneScraper.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -337,6 +339,70 @@ function css(): string {
       color: var(--muted);
       line-height: 1.8;
     }
+
+    /* ── SWOT ──────────────────────────────────────────────────────── */
+    .swot-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+    .swot-quadrant {
+      border-radius: 8px;
+      padding: 14px 16px;
+      border: 1px solid transparent;
+    }
+    .swot-quadrant.strengths     { background: #f0fdf4; border-color: #bbf7d0; }
+    .swot-quadrant.weaknesses    { background: #fef2f2; border-color: #fecaca; }
+    .swot-quadrant.opportunities { background: #eff6ff; border-color: #bfdbfe; }
+    .swot-quadrant.threats       { background: #fffbeb; border-color: #fde68a; }
+    .swot-qhead {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; margin-bottom: 10px; display: flex;
+      align-items: center; gap: 6px;
+    }
+    .swot-qhead .swot-count {
+      font-size: 11px; font-weight: 700; padding: 1px 7px;
+      border-radius: 99px;
+    }
+    .strengths     .swot-qhead { color: var(--green); }
+    .strengths     .swot-count { background: #dcfce7; color: var(--green); }
+    .weaknesses    .swot-qhead { color: var(--red); }
+    .weaknesses    .swot-count { background: #fee2e2; color: var(--red); }
+    .opportunities .swot-qhead { color: var(--blue); }
+    .opportunities .swot-count { background: #dbeafe; color: var(--blue); }
+    .threats       .swot-qhead { color: var(--amber); }
+    .threats       .swot-count { background: #fef3c7; color: var(--amber); }
+    .swot-item {
+      font-size: 11px; padding: 5px 0;
+      border-bottom: 1px solid rgba(0,0,0,.06);
+    }
+    .swot-item:last-child { border-bottom: none; }
+    .swot-item-label { font-weight: 600; margin-bottom: 1px; }
+    .swot-item-detail { color: var(--muted); font-size: 10.5px; }
+
+    /* ── Trendlyne ─────────────────────────────────────────────────── */
+    .tl-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .tl-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .tl-label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 4px; }
+    .tl-value { font-size: 16px; font-weight: 700; }
+    .tl-sub   { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .dvm-bar-row { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+    .dvm-bar-item { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+    .dvm-bar-item .dvm-name { width: 80px; color: var(--muted); }
+    .dvm-bar-track { flex: 1; height: 6px; background: var(--border); border-radius: 99px; }
+    .dvm-bar-fill { height: 100%; border-radius: 99px; background: var(--blue); }
+    .dvm-bar-score { width: 28px; text-align: right; font-weight: 600; }
 
     /* ── Print styles ──────────────────────────────────────────────── */
     @media print {
@@ -678,6 +744,120 @@ function renderDataGaps(report: EvaluationReport): string {
   </div>`;
 }
 
+function renderSwot(swot: SwotResult): string {
+  const quadrants: { key: keyof SwotResult; cls: string; label: string; icon: string }[] = [
+    { key: "strengths",     cls: "strengths",     label: "Strengths",     icon: "✅" },
+    { key: "weaknesses",    cls: "weaknesses",    label: "Weaknesses",    icon: "❌" },
+    { key: "opportunities", cls: "opportunities", label: "Opportunities", icon: "🔷" },
+    { key: "threats",       cls: "threats",       label: "Threats",       icon: "⚠️"  },
+  ];
+
+  const panels = quadrants.map(({ key, cls, label, icon }) => {
+    const items = swot[key] as { label: string; detail: string }[];
+    const itemsHtml = items.length > 0
+      ? items.map(it => `
+          <div class="swot-item">
+            <div class="swot-item-label">${esc(it.label)}</div>
+            <div class="swot-item-detail">${esc(it.detail)}</div>
+          </div>`).join("")
+      : `<div class="swot-item"><div class="swot-item-detail" style="font-style:italic">None identified</div></div>`;
+
+    return `
+      <div class="swot-quadrant ${cls}">
+        <div class="swot-qhead">
+          ${icon} ${label}
+          <span class="swot-count">${items.length}</span>
+        </div>
+        ${itemsHtml}
+      </div>`;
+  });
+
+  return `
+  <div class="section">
+    <div class="section-title">
+      SWOT Analysis
+      <span class="badge pass" style="font-size:10px">${swot.summary.s}S · ${swot.summary.w}W · ${swot.summary.o}O · ${swot.summary.t}T</span>
+      <span style="font-size:10px;color:var(--muted);margin-left:4px">rule-based · from live data</span>
+    </div>
+    <div class="swot-grid">${panels.join("")}</div>
+  </div>`;
+}
+
+function renderTrendlyne(tl: TrendlyneData): string {
+  if (!tl.fetched) return "";
+
+  const cards: string[] = [];
+
+  if (tl.beta !== null) {
+    cards.push(`
+      <div class="tl-card">
+        <div class="tl-label">Beta</div>
+        <div class="tl-value">${esc(tl.beta)}</div>
+        <div class="tl-sub">vs market volatility</div>
+      </div>`);
+  }
+
+  if (tl.analyst_target_price !== null) {
+    cards.push(`
+      <div class="tl-card">
+        <div class="tl-label">Analyst Target</div>
+        <div class="tl-value">₹${esc(tl.analyst_target_price)}</div>
+        <div class="tl-sub">${tl.analyst_count !== null ? `${tl.analyst_count} analysts` : "consensus"}</div>
+      </div>`);
+  }
+
+  if (tl.retail_sentiment !== null) {
+    const buy = tl.retail_sentiment.buy_pct ?? 0;
+    const sell = tl.retail_sentiment.sell_pct ?? 0;
+    const hold = tl.retail_sentiment.hold_pct ?? 0;
+    const votes = tl.retail_sentiment.total_votes;
+    cards.push(`
+      <div class="tl-card">
+        <div class="tl-label">Retail Sentiment</div>
+        <div class="tl-value" style="color:var(--green)">${buy}% Buy</div>
+        <div class="tl-sub">${sell}% Sell · ${hold}% Hold${votes !== null ? ` · ${votes.toLocaleString("en-IN")} votes` : ""}</div>
+      </div>`);
+  }
+
+  let dvmHtml = "";
+  if (tl.dvm_scores !== null) {
+    const { durability, valuation, momentum, label } = tl.dvm_scores;
+    const bars = [
+      { name: "Durability", score: durability },
+      { name: "Valuation",  score: valuation  },
+      { name: "Momentum",   score: momentum   },
+    ];
+    dvmHtml = `
+      <div class="tl-card" style="grid-column: span ${Math.max(1, 4 - cards.length)}">
+        <div class="tl-label">DVM Scores${label !== null ? ` · ${esc(label)}` : ""}</div>
+        <div class="dvm-bar-row">
+          ${bars.map(b => `
+            <div class="dvm-bar-item">
+              <span class="dvm-name">${esc(b.name)}</span>
+              <div class="dvm-bar-track">
+                <div class="dvm-bar-fill" style="width:${b.score ?? 0}%"></div>
+              </div>
+              <span class="dvm-bar-score">${b.score ?? "—"}</span>
+            </div>`).join("")}
+        </div>
+      </div>`;
+  }
+
+  if (cards.length === 0 && dvmHtml === "") return "";
+
+  return `
+  <div class="section">
+    <div class="section-title">
+      Trendlyne Supplementary Data
+      <span style="font-size:10px;color:var(--muted);margin-left:4px">sourced from trendlyne.com</span>
+    </div>
+    <div class="tl-grid">
+      ${cards.join("")}
+      ${dvmHtml}
+    </div>
+  </div>`;
+}
+
 function renderFooter(stock: StockData): string {
   const now = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   return `
@@ -693,7 +873,9 @@ function renderFooter(stock: StockData): string {
 export function buildHtml(
   report: EvaluationReport,
   stock: StockData,
-  input: EvaluationInput
+  input: EvaluationInput,
+  swot?: SwotResult,
+  trendlyne?: TrendlyneData | null
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -717,6 +899,8 @@ export function buildHtml(
 <div class="page">
   ${renderCover(report, stock, input)}
   ${renderSnapshot(stock, report)}
+  ${swot !== undefined ? renderSwot(swot) : ""}
+  ${trendlyne !== null && trendlyne !== undefined ? renderTrendlyne(trendlyne) : ""}
   ${renderFlags(report)}
   ${renderFinancials(report)}
   ${renderValuation(report, stock)}
@@ -740,6 +924,8 @@ export async function saveHtmlReport(
   stock: StockData,
   input: EvaluationInput,
   evaluation: EvaluationReport,
+  swot?: SwotResult,
+  trendlyne?: TrendlyneData | null,
   outputPath?: string
 ): Promise<string> {
   const date = new Date().toISOString().split("T")[0] ?? new Date().toISOString().slice(0, 10);
@@ -747,7 +933,7 @@ export async function saveHtmlReport(
   const filePath = outputPath ?? path.join(REPORTS_DIR, fileName);
 
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, buildHtml(evaluation, stock, input), "utf-8");
+  await fs.writeFile(filePath, buildHtml(evaluation, stock, input, swot, trendlyne), "utf-8");
 
   return filePath;
 }
