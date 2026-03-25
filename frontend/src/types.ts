@@ -61,23 +61,100 @@ export interface SwotResult {
   summary: { s: number; w: number; o: number; t: number };
 }
 
+export interface TrendlyneSwotItem {
+  text: string;
+}
+
+export interface TrendlyneChecklistItem {
+  metric: string;
+  assessment: string;
+  value: number | null;
+}
+
 export interface TrendlyneData {
   beta: number | null;
-  analyst_target_price: number | null;
-  analyst_count: number | null;
+
+  tl_swot: {
+    strengths: TrendlyneSwotItem[];
+    weaknesses: TrendlyneSwotItem[];
+    opportunities: TrendlyneSwotItem[];
+    threats: TrendlyneSwotItem[];
+    counts: { s: number; w: number; o: number; t: number } | null;
+  } | null;
+
+  /** @deprecated use tl_swot.counts */
   swot_counts: { s: number; w: number; o: number; t: number } | null;
+
   dvm_scores: {
     durability: number | null;
     valuation: number | null;
     momentum: number | null;
     label: string | null;
   } | null;
+
+  checklist: TrendlyneChecklistItem[] | null;
+
+  key_metrics: {
+    market_cap: number | null;
+    pe_ttm: number | null;
+    peg_ttm: number | null;
+    price_to_book: number | null;
+    institutions_holding_pct: number | null;
+    rev_growth_qtr_yoy: number | null;
+    operating_revenue_growth_ttm: number | null;
+    net_profit_qtr_growth_yoy: number | null;
+    net_profit_ttm_growth: number | null;
+    opm_qtr: number | null;
+    opm_ttm: number | null;
+    piotroski_score: number | null;
+    relative_return_nifty50_qtr: number | null;
+    relative_return_sector_qtr: number | null;
+    roe_annual: number | null;
+    roa_annual: number | null;
+  } | null;
+
+  analyst_consensus: {
+    recommendation: string | null;
+    count: number | null;
+    target_price: number | null;
+    breakdown: {
+      strong_sell: number | null;
+      sell: number | null;
+      hold: number | null;
+      buy: number | null;
+      strong_buy: number | null;
+    } | null;
+  } | null;
+
+  /** @deprecated use analyst_consensus.target_price */
+  analyst_target_price: number | null;
+  /** @deprecated use analyst_consensus.count */
+  analyst_count: number | null;
+
+  support_resistance: {
+    resistance: [number | null, number | null, number | null];
+    support: [number | null, number | null, number | null];
+  } | null;
+
+  moving_averages: {
+    bullish: number | null;
+    bearish: number | null;
+  } | null;
+
+  shareholding: {
+    promoters: number | null;
+    fii: number | null;
+    dii: number | null;
+    public_holding: number | null;
+  } | null;
+
   retail_sentiment: {
     buy_pct: number | null;
     sell_pct: number | null;
     hold_pct: number | null;
     total_votes: number | null;
   } | null;
+
   fetched: boolean;
   error: string | null;
 }
