@@ -130,30 +130,31 @@ function parseNum(raw: string | undefined | null): number | null {
 
 async function resolveStockPageUrl(ticker: string): Promise<string | null> {
   const upperTicker = ticker.toUpperCase();
+  console.log(`[Trendlyne] Resolving page URL for ${upperTicker}…`);
 
   // ── Strategy 1: JSON suggest API ─────────────────────────────────────────
   try {
-    const res = await fetch(
-      `https://trendlyne.com/search/suggest/?q=${encodeURIComponent(upperTicker)}`,
-      {
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "application/json, text/javascript, */*; q=0.01",
-          "X-Requested-With": "XMLHttpRequest",
-          Referer: "https://trendlyne.com/",
-        },
-        signal: AbortSignal.timeout(8000),
-      }
-    );
+    const suggestUrl = `https://trendlyne.com/search/suggest/?q=${encodeURIComponent(upperTicker)}`;
+    console.log(`[Trendlyne] Strategy 1 — suggest API: ${suggestUrl}`);
+    const res = await fetch(suggestUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: "https://trendlyne.com/",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    console.log(`[Trendlyne] Strategy 1 — HTTP ${res.status}`);
     if (res.ok) {
       const data: unknown = await res.json();
+      console.log(`[Trendlyne] Strategy 1 — raw JSON:`, JSON.stringify(data).slice(0, 400));
       const list: Record<string, unknown>[] = Array.isArray(data)
         ? (data as Record<string, unknown>[])
         : Array.isArray((data as Record<string, unknown>)["results"])
           ? ((data as Record<string, unknown>)["results"] as Record<string, unknown>[])
           : [];
 
-      // Prefer exact ticker match, fall back to first result
       const match =
         list.find(
           (item) =>
@@ -163,33 +164,42 @@ async function resolveStockPageUrl(ticker: string): Promise<string | null> {
       if (match !== undefined) {
         const id = match["pk"] ?? match["id"] ?? match["stock_id"];
         const sym = String(match["ticker"] ?? match["symbol"] ?? upperTicker).toUpperCase();
-        if (id != null) return `https://trendlyne.com/equity/${id}/${sym}/`;
+        if (id != null) {
+          const url = `https://trendlyne.com/equity/${id}/${sym}/`;
+          console.log(`[Trendlyne] Strategy 1 — resolved: ${url}`);
+          return url;
+        }
       }
+      console.log(`[Trendlyne] Strategy 1 — no usable ID in response (${list.length} items)`);
     }
-  } catch { /* fall through */ }
+  } catch (e) {
+    console.log(`[Trendlyne] Strategy 1 — error: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   // ── Strategy 2: Search results page → extract equity href ────────────────
   try {
-    const res = await fetch(
-      `https://trendlyne.com/search/?q=${encodeURIComponent(upperTicker)}`,
-      {
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
-          Referer: "https://trendlyne.com/",
-        },
-        signal: AbortSignal.timeout(12000),
-        redirect: "follow",
-      }
-    );
+    const searchUrl = `https://trendlyne.com/search/?q=${encodeURIComponent(upperTicker)}`;
+    console.log(`[Trendlyne] Strategy 2 — search page: ${searchUrl}`);
+    const res = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+        Referer: "https://trendlyne.com/",
+      },
+      signal: AbortSignal.timeout(12000),
+      redirect: "follow",
+    });
+    console.log(`[Trendlyne] Strategy 2 — HTTP ${res.status}, final URL: ${res.url}`);
     if (res.ok) {
-      // If the search auto-redirected to an equity page, use that URL directly
-      if (res.url.includes("/equity/")) return res.url;
+      if (res.url.includes("/equity/")) {
+        console.log(`[Trendlyne] Strategy 2 — auto-redirected to equity page`);
+        return res.url;
+      }
 
       const html = await res.text();
+      console.log(`[Trendlyne] Strategy 2 — page length: ${html.length} chars`);
       const $ = cheerio.load(html);
 
-      // Look for <a href="/equity/{id}/{ticker}/"> links in search results
       let found: string | null = null;
       $("a[href*='/equity/']").each((_i, el) => {
         if (found) return false;
@@ -200,29 +210,41 @@ async function resolveStockPageUrl(ticker: string): Promise<string | null> {
           return false;
         }
       });
-      if (found) return found;
+      if (found) {
+        console.log(`[Trendlyne] Strategy 2 — found exact ticker href: ${found}`);
+        return found;
+      }
 
-      // Relax: accept any equity link that appears first in search results
       const firstHref = $("a[href*='/equity/']").first().attr("href");
       if (firstHref) {
-        return firstHref.startsWith("http")
+        const url = firstHref.startsWith("http")
           ? firstHref
           : `https://trendlyne.com${firstHref}`;
+        console.log(`[Trendlyne] Strategy 2 — using first equity href: ${url}`);
+        return url;
       }
+      console.log(`[Trendlyne] Strategy 2 — no equity links found on search page`);
     }
-  } catch { /* fall through */ }
+  } catch (e) {
+    console.log(`[Trendlyne] Strategy 2 — error: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
-  // ── Strategy 3: Direct canonical URL guess (ticker-only, some stocks work) ─
-  // Trendlyne sometimes accepts /equity/TICKER/ and 301-redirects to the full URL.
+  // ── Strategy 3: Direct canonical URL guess ────────────────────────────────
   try {
-    const res = await fetch(`https://trendlyne.com/equity/${upperTicker}/`, {
+    const directUrl = `https://trendlyne.com/equity/${upperTicker}/`;
+    console.log(`[Trendlyne] Strategy 3 — direct URL: ${directUrl}`);
+    const res = await fetch(directUrl, {
       headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(8000),
       redirect: "follow",
     });
+    console.log(`[Trendlyne] Strategy 3 — HTTP ${res.status}, final URL: ${res.url}`);
     if (res.ok && res.url.includes("/equity/")) return res.url;
-  } catch { /* fall through */ }
+  } catch (e) {
+    console.log(`[Trendlyne] Strategy 3 — error: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
+  console.log(`[Trendlyne] All strategies failed — cannot resolve URL for ${upperTicker}`);
   return null;
 }
 
@@ -619,11 +641,13 @@ const EMPTY: TrendlyneData = {
 };
 
 export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData> {
+  console.log(`[Trendlyne] Starting fetch for ${ticker.toUpperCase()}`);
   await new Promise<void>((resolve) => setTimeout(resolve, 1000));
 
   try {
     const pageUrl = await resolveStockPageUrl(ticker);
     if (pageUrl === null) {
+      console.log(`[Trendlyne] URL resolution failed — aborting`);
       return {
         ...EMPTY,
         fetched: false,
@@ -631,6 +655,7 @@ export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData>
       };
     }
 
+    console.log(`[Trendlyne] Fetching equity page: ${pageUrl}`);
     const res = await fetch(pageUrl, {
       headers: {
         "User-Agent": USER_AGENT,
@@ -644,13 +669,17 @@ export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData>
       redirect: "follow",
     });
 
+    console.log(`[Trendlyne] Equity page — HTTP ${res.status}, final URL: ${res.url}`);
+
     if (!res.ok) {
       return { ...EMPTY, fetched: false, error: `Trendlyne returned HTTP ${res.status}` };
     }
 
     const html = await res.text();
+    console.log(`[Trendlyne] Page length: ${html.length} chars`);
 
     if (html.length < 1000 || (html.includes("login") && !html.includes("equity"))) {
+      console.log(`[Trendlyne] Page appears to be a login wall or empty`);
       return {
         ...EMPTY,
         fetched: false,
@@ -671,6 +700,21 @@ export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData>
     const shareholding = parseShareholding($);
     const retail_sentiment = parseRetailSentiment($);
 
+    console.log(`[Trendlyne] Parsed results:`, {
+      beta,
+      swot_counts: tl_swot?.counts ?? null,
+      swot_items: tl_swot
+        ? { s: tl_swot.strengths.length, w: tl_swot.weaknesses.length, o: tl_swot.opportunities.length, t: tl_swot.threats.length }
+        : null,
+      dvm_scores,
+      checklist_rows: checklist?.length ?? 0,
+      analyst_consensus,
+      support_resistance,
+      moving_averages,
+      shareholding,
+      retail_sentiment,
+    });
+
     // Back-compat aliases
     const swot_counts = tl_swot?.counts ?? null;
     const analyst_target_price = analyst_consensus?.target_price ?? null;
@@ -684,6 +728,8 @@ export async function fetchTrendlyneData(ticker: string): Promise<TrendlyneData>
       analyst_consensus !== null ||
       support_resistance !== null ||
       moving_averages !== null;
+
+    console.log(`[Trendlyne] anyDataFound: ${anyDataFound}`);
 
     return {
       beta,
