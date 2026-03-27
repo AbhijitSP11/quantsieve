@@ -43,6 +43,12 @@ export async function fetchNewsApiNews(
     }
 
     const data = (await res.json()) as NewsApiResponse;
+
+    if (data.status && data.status !== "ok") {
+      console.warn(`[NewsAPI.org] API error status: ${data.status}`);
+      return { providerName, items: [], latencyMs: Date.now() - start, error: `API error: ${data.status}` };
+    }
+
     const articles: NewsApiArticle[] = data.articles ?? [];
 
     const items: NewsItem[] = articles

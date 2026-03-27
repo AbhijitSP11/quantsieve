@@ -3,10 +3,10 @@ import { fetchBseAnnouncements } from "./bseService.js";
 import { fetchNseAnnouncements } from "./nseService.js";
 import { fetchNewsdataNews } from "./newsdataService.js";
 import { fetchNewsApiNews } from "./newsApiService.js";
+import { fetchGoogleNewsRss } from "./googleNewsService.js";
 import { computeFinalScore, deduplicateNews } from "../../utils/newsHelpers.js";
 
 // ─── Provider runners ─────────────────────────────────────────────────────────
-// Each runner is skipped if its API key is absent; NSE failure is always silent.
 
 function shouldRunNewsdata(): boolean {
   return Boolean(process.env["NEWSDATA_API_KEY"]);
@@ -54,6 +54,8 @@ function sortItems(items: NewsItem[]): NewsItem[] {
 }
 
 // ─── Main aggregator ──────────────────────────────────────────────────────────
+// Provider order: BSE (official) → NSE (official) → Google News (free, no key) →
+//                 NewsData.io (optional key) → NewsAPI.org (optional key)
 
 export async function fetchAllNews(
   symbol: string,
@@ -62,25 +64,32 @@ export async function fetchAllNews(
 ): Promise<NewsResponse> {
   const co = companyName ?? symbol;
 
+  // Google News is always run — free, no API key needed
+  // NewsData.io and NewsAPI.org only run if keys are present
   const tasks: Promise<ProviderResult>[] = [
     fetchBseAnnouncements(symbol, bseCode),
     fetchNseAnnouncements(symbol),
+    fetchGoogleNewsRss(co, symbol),
     ...(shouldRunNewsdata() ? [fetchNewsdataNews(co, symbol)] : []),
     ...(shouldRunNewsApi() ? [fetchNewsApiNews(co, symbol)] : []),
   ];
 
+  console.log(`[News] Fetching for ${symbol} (${co}) bseCode=${bseCode ?? "none"} — ${tasks.length} provider(s)`);
   const settled = await Promise.allSettled(tasks);
 
-  const [bseSettled, nseSettled, ...mediaSorted] = settled;
+  // settled indices: 0=BSE, 1=NSE, 2=GoogleNews, 3+=optional media
+  const [bseSettled, nseSettled, googleSettled, ...optionalSettled] = settled;
 
+  let optIdx = 0;
   const providers: NewsResponse["providers"] = [
     toProviderMeta(bseSettled!, "BSE India"),
     toProviderMeta(nseSettled!, "NSE India"),
+    toProviderMeta(googleSettled!, "Google News"),
     ...(shouldRunNewsdata()
-      ? [toProviderMeta(mediaSorted[0]!, "NewsData.io")]
+      ? [toProviderMeta(optionalSettled[optIdx++]!, "NewsData.io")]
       : [skippedMeta("NewsData.io")]),
     ...(shouldRunNewsApi()
-      ? [toProviderMeta(mediaSorted[shouldRunNewsdata() ? 1 : 0]!, "NewsAPI.org")]
+      ? [toProviderMeta(optionalSettled[optIdx++]!, "NewsAPI.org")]
       : [skippedMeta("NewsAPI.org")]),
   ];
 
@@ -94,6 +103,8 @@ export async function fetchAllNews(
   const scored = deduped.map((item) => ({ ...item, finalScore: computeFinalScore(item) }));
   const sorted = sortItems(scored);
   const items = sorted.slice(0, 30);
+
+  console.log(`[News] Done — ${items.length} items. Providers: ${providers.map((p) => `${p.name}:${p.status}(${p.itemCount})`).join(", ")}`);
 
   return {
     symbol,

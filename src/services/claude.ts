@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { StockData } from "../types/stock.js";
 import type { EvaluationInput } from "../types/profile.js";
 import type { EvaluationReport } from "../types/evaluation.js";
-import { STOCK_EVALUATOR_PROMPT } from "../prompts/stockEvaluator.js";
+import { STOCK_EVALUATOR_PROMPT, EVALUATION_USER_PREFIX } from "../prompts/stockEvaluator.js";
 import { evaluationReportSchema } from "../utils/validators.js";
 import { env } from "../config/env.js";
 import type { SwotResult } from "./swotEngine.js";
@@ -19,17 +19,17 @@ function buildSwotSection(swot: SwotResult): string {
   const lines: string[] = [
     `PRE-COMPUTED SWOT ANALYSIS (rule-based, from live data):`,
     ``,
-    `STRENGTHS (${swot.summary.s}):`,
-    ...swot.strengths.map((s) => `• ${s.label}: ${s.detail}`),
+    `STRENGTHS (${swot.summary.strengths}):`,
+    ...swot.strengths.map((s) => `• ${s.point} [${s.strength}]: ${s.evidence}`),
     ``,
-    `WEAKNESSES (${swot.summary.w}):`,
-    ...swot.weaknesses.map((w) => `• ${w.label}: ${w.detail}`),
+    `WEAKNESSES (${swot.summary.weaknesses}):`,
+    ...swot.weaknesses.map((w) => `• ${w.point} [${w.strength}]: ${w.evidence}`),
     ``,
-    `OPPORTUNITIES (${swot.summary.o}):`,
-    ...swot.opportunities.map((o) => `• ${o.label}: ${o.detail}`),
+    `OPPORTUNITIES (${swot.summary.opportunities}):`,
+    ...swot.opportunities.map((o) => `• ${o.point} [${o.strength}]: ${o.evidence}`),
     ``,
-    `THREATS (${swot.summary.t}):`,
-    ...swot.threats.map((t) => `• ${t.label}: ${t.detail}`),
+    `THREATS (${swot.summary.threats}):`,
+    ...swot.threats.map((t) => `• ${t.point} [${t.strength}]: ${t.evidence}`),
     ``,
     `Use these pre-computed signals alongside the raw financial data. Incorporate relevant SWOT items into your quality checks, risk assessment, and verdict reasoning. Flag any SWOT items that are especially relevant to this specific investor's profile.`,
   ];
@@ -97,6 +97,7 @@ export async function evaluateStock(
     recentNews && recentNews.length > 0 ? buildNewsSection(recentNews) : "";
 
   const userContent = [
+    EVALUATION_USER_PREFIX,
     `LIVE STOCK DATA:\n${JSON.stringify(stockData, null, 2)}`,
     `\nINVESTOR PROFILE:\n${JSON.stringify(input.profile, null, 2)}`,
     `\nENTRY CONTEXT: ${input.entry_context}`,

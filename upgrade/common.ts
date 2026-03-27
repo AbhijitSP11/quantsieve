@@ -25,6 +25,3 @@ export type NewsCategory =
   | "article";
 
 export type NewsTrustTier = "EXCHANGE" | "PREMIUM_MEDIA" | "MEDIA" | "DEFAULT";
-
-// Used by scraper parser and stock data types
-export type MarketCapCategory = "Large" | "Mid" | "Small" | "Micro";

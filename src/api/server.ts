@@ -10,7 +10,9 @@ import { fetchTrendlyneData } from "../services/trendlyneScraper.js";
 import { buildHtml } from "../services/htmlWriter.js";
 import type { EvaluationInput } from "../types/profile.js";
 import { fetchAllNews } from "../services/news/newsAggregator.js";
+import { analyzeNewsSentiment } from "../services/newsSentimentService.js";
 import type { NewsResponse } from "../services/news/types.js";
+import type { NewsSentimentAnalysis } from "../types/newsSentiment.js";
 
 // ── News cache (15 min TTL per symbol) ────────────────────────────────────────
 const newsCache = new Map<string, { data: NewsResponse; expiresAt: number }>();
@@ -20,6 +22,12 @@ const PUBLIC_DIR = path.resolve(process.cwd(), "dist/public");
 
 const app = express();
 app.use(express.json());
+
+// ── Request logger ────────────────────────────────────────────────────────────
+app.use((req: Request, _res: Response, next: () => void) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
 
 // ── CORS (permissive — tighten in production if needed) ───────────────────────
 app.use((_req: Request, res: Response, next: () => void) => {
@@ -102,33 +110,35 @@ async function runEvaluation(body: unknown) {
   // 3. Trendlyne + news in parallel (both best-effort)
   const [trendlyne, newsResult] = await Promise.all([
     fetchTrendlyneData(symbol).catch(() => null),
-    fetchAllNews(symbol, stockData.company_name ?? undefined).catch(() => null),
+    fetchAllNews(symbol, stockData.company_name ?? undefined, stockData.bse_code ?? undefined).catch(() => null),
   ]);
 
   const recentNews = newsResult?.items ?? [];
 
-  // 4. Claude 14-step evaluation (with news context)
+  // 4. Claude evaluation + news sentiment analysis — run in parallel (zero extra latency)
+  let evaluation: Awaited<ReturnType<typeof evaluateStock>>;
+  let sentiment: NewsSentimentAnalysis | null = null;
+
   try {
-    const evaluation = await evaluateStock(
-      stockData,
-      input,
-      swot,
-      trendlyne ?? undefined,
-      recentNews
-    );
-    return {
-      ok: true as const,
-      stock: stockData,
-      swot,
-      trendlyne,
-      news: newsResult,
-      evaluation,
-      input,
-    };
+    [evaluation, sentiment] = await Promise.all([
+      evaluateStock(stockData, input, swot, trendlyne ?? undefined, recentNews),
+      analyzeNewsSentiment(recentNews, stockData.company_name, symbol, stockData.sector).catch(() => null),
+    ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false as const, status: 500, error: message };
   }
+
+  return {
+    ok: true as const,
+    stock: stockData,
+    swot,
+    trendlyne,
+    news: newsResult,
+    sentiment,
+    evaluation,
+    input,
+  };
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -147,10 +157,18 @@ app.post("/api/evaluate", async (req: Request, res: Response) => {
     });
     return;
   }
+  // Cache the news result for the independent /api/stocks/:symbol/news endpoint
+  if (result.news) {
+    const cacheKey = `${result.stock.ticker}:${result.stock.company_name ?? ""}`;
+    newsCache.set(cacheKey, { data: result.news, expiresAt: Date.now() + NEWS_TTL_MS });
+  }
+
   res.json({
     stock: result.stock,
     swot: result.swot,
     trendlyne: result.trendlyne,
+    news: result.news ?? null,
+    sentiment: result.sentiment ?? null,
     evaluation: result.evaluation,
   });
 });

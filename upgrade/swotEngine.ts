@@ -9,9 +9,8 @@
 // It never speculates. If a field is null, the check is simply skipped.
 // Claude's 15-step reasoning handles nuance; this engine handles deterministic thresholds.
 
-import type { StockData } from "../types/stock.js";
-import { SECTOR_THRESHOLDS } from "../utils/sectorThresholds.js";
-import type { SectorThreshold } from "../utils/sectorThresholds.js";
+import type { StockData } from "../types/stock";
+import { getSectorThresholds } from "../utils/sectorThresholds";
 
 export interface SwotItem {
   point: string;
@@ -38,19 +37,7 @@ export interface SwotResult {
   summary: SwotSummary;
 }
 
-function getSectorThresholds(sector: string): SectorThreshold {
-  if (sector in SECTOR_THRESHOLDS) return SECTOR_THRESHOLDS[sector]!;
-  const sectorLower = sector.toLowerCase();
-  for (const [key, value] of Object.entries(SECTOR_THRESHOLDS)) {
-    const keyParts = key.toLowerCase().split(/[\s/]+/);
-    if (keyParts.some((part) => part.length > 3 && sectorLower.includes(part))) {
-      return value;
-    }
-  }
-  return SECTOR_THRESHOLDS["General"]!;
-}
-
-export function generateSwot(stock: StockData): SwotResult {
+export function runSwotEngine(stock: StockData): SwotResult {
   const thresholds = getSectorThresholds(stock.sector ?? "General");
 
   const strengths: SwotItem[] = [];
@@ -65,14 +52,14 @@ export function generateSwot(stock: StockData): SwotResult {
     if (nums.length === 0) return null;
     return nums.reduce((a, b) => a + b, 0) / nums.length;
   };
-  void avg; // used implicitly via closures below
 
   // ─── Helper: trend direction (positive = improving) ───────────────────────
-  const trend = (arr: number[] | null | undefined): "UP" | "DOWN" | "FLAT" | null => {
+  const trend = (arr: (number | null)[] | null | undefined): "UP" | "DOWN" | "FLAT" | null => {
     if (!arr || arr.length < 2) return null;
-    const first = arr[0];
-    const last = arr[arr.length - 1];
-    if (first === undefined || last === undefined) return null;
+    const nums = arr.filter((v): v is number => v !== null);
+    if (nums.length < 2) return null;
+    const first = nums[0];
+    const last = nums[nums.length - 1];
     const delta = ((last - first) / Math.abs(first || 1)) * 100;
     if (delta > 5) return "UP";
     if (delta < -5) return "DOWN";
@@ -80,11 +67,12 @@ export function generateSwot(stock: StockData): SwotResult {
   };
 
   // ─── Helper: consecutive direction in array ───────────────────────────────
-  const consecutiveDeclineCount = (arr: number[]): number => {
-    if (arr.length < 2) return 0;
+  const consecutiveDeclineCount = (arr: (number | null)[] | null | undefined): number => {
+    if (!arr || arr.length < 2) return 0;
+    const nums = arr.filter((v): v is number => v !== null);
     let count = 0;
-    for (let i = arr.length - 1; i > 0; i--) {
-      if ((arr[i] ?? 0) < (arr[i - 1] ?? 0)) count++;
+    for (let i = nums.length - 1; i > 0; i--) {
+      if (nums[i] < nums[i - 1]) count++;
       else break;
     }
     return count;
@@ -95,29 +83,28 @@ export function generateSwot(stock: StockData): SwotResult {
   // ═══════════════════════════════════════════════
 
   // ROE above sector threshold
-  if (stock.roe !== null && stock.roe >= thresholds.good_roe) {
+  if (stock.roe !== null && stock.roe >= thresholds.goodRoe) {
     strengths.push({
       point: "ROE above sector threshold",
-      evidence: `ROE ${stock.roe.toFixed(1)}% vs threshold ${thresholds.good_roe}%`,
-      strength: stock.roe >= thresholds.good_roe * 1.3 ? "HIGH" : "MEDIUM",
+      evidence: `ROE ${stock.roe.toFixed(1)}% vs threshold ${thresholds.goodRoe}%`,
+      strength: stock.roe >= thresholds.goodRoe * 1.3 ? "HIGH" : "MEDIUM",
     });
   }
 
   // ROCE above threshold (non-banking)
-  const latestRoceRaw = stock.roce && stock.roce.length > 0
+  const latestRoce = stock.roce && stock.roce.length > 0
     ? stock.roce[stock.roce.length - 1]
-    : undefined;
-  const latestRoce: number | null = latestRoceRaw ?? null;
-  if (latestRoce !== null && thresholds.good_roce && latestRoce >= thresholds.good_roce) {
+    : null;
+  if (latestRoce !== null && thresholds.goodRoce && latestRoce >= thresholds.goodRoce) {
     strengths.push({
       point: "ROCE above sector threshold",
-      evidence: `ROCE ${latestRoce.toFixed(1)}% vs threshold ${thresholds.good_roce}%`,
-      strength: latestRoce >= thresholds.good_roce * 1.3 ? "HIGH" : "MEDIUM",
+      evidence: `ROCE ${latestRoce.toFixed(1)}% vs threshold ${thresholds.goodRoce}%`,
+      strength: latestRoce >= thresholds.goodRoce * 1.3 ? "HIGH" : "MEDIUM",
     });
   }
 
   // Revenue growth (5Y CAGR)
-  const rev5y = stock.compounded_sales_growth?.["5y"];
+  const rev5y = stock.compounded_sales_growth?.["5Year"];
   if (rev5y !== null && rev5y !== undefined && rev5y >= 15) {
     strengths.push({
       point: "Strong 5-year revenue compounding",
@@ -127,7 +114,7 @@ export function generateSwot(stock: StockData): SwotResult {
   }
 
   // Profit growth (5Y CAGR) exceeds revenue (margin expansion proxy)
-  const profit5y = stock.compounded_profit_growth?.["5y"];
+  const profit5y = stock.compounded_profit_growth?.["5Year"];
   if (
     profit5y !== null &&
     profit5y !== undefined &&
@@ -143,17 +130,17 @@ export function generateSwot(stock: StockData): SwotResult {
   }
 
   // Low debt
-  if (stock.debt_to_equity !== null && stock.debt_to_equity <= thresholds.acceptable_de * 0.5) {
+  if (stock.debt_to_equity !== null && stock.debt_to_equity <= thresholds.acceptableDE * 0.5) {
     strengths.push({
       point: "Conservatively leveraged balance sheet",
-      evidence: `D/E ${stock.debt_to_equity.toFixed(2)}x (sector threshold ${thresholds.acceptable_de}x)`,
+      evidence: `D/E ${stock.debt_to_equity.toFixed(2)}x (sector threshold ${thresholds.acceptableDE}x)`,
       strength: stock.debt_to_equity === 0 ? "HIGH" : "MEDIUM",
     });
   }
 
   // High promoter holding (stable or increasing)
   if (stock.promoter_holding !== null && stock.promoter_holding >= 60) {
-    const promTrend = trend(stock.promoter_holding_trend.map((x) => x.pct));
+    const promTrend = trend(stock.promoter_holding_trend ?? null);
     if (promTrend === "UP" || promTrend === "FLAT") {
       strengths.push({
         point: "High and stable/increasing promoter holding",
@@ -164,11 +151,10 @@ export function generateSwot(stock: StockData): SwotResult {
   }
 
   // OPM improving trend
-  const opmTrend = trend(stock.opm.length > 0 ? stock.opm : null);
-  const latestOpmRaw = stock.opm && stock.opm.length > 0
+  const opmTrend = trend(stock.opm ?? null);
+  const latestOpm = stock.opm && stock.opm.length > 0
     ? stock.opm[stock.opm.length - 1]
-    : undefined;
-  const latestOpm: number | null = latestOpmRaw ?? null;
+    : null;
   if (opmTrend === "UP" && latestOpm !== null && latestOpm >= 15) {
     strengths.push({
       point: "Operating margins expanding",
@@ -215,36 +201,35 @@ export function generateSwot(stock: StockData): SwotResult {
   // ═══════════════════════════════════════════════
 
   // ROE below threshold
-  if (stock.roe !== null && stock.roe < thresholds.good_roe) {
+  if (stock.roe !== null && stock.roe < thresholds.goodRoe) {
     weaknesses.push({
       point: "ROE below sector threshold",
-      evidence: `ROE ${stock.roe.toFixed(1)}% vs threshold ${thresholds.good_roe}%`,
-      strength: stock.roe < thresholds.good_roe * 0.7 ? "HIGH" : "MEDIUM",
+      evidence: `ROE ${stock.roe.toFixed(1)}% vs threshold ${thresholds.goodRoe}%`,
+      strength: stock.roe < thresholds.goodRoe * 0.7 ? "HIGH" : "MEDIUM",
     });
   }
 
   // ROCE below threshold
-  if (latestRoce !== null && thresholds.good_roce !== null && thresholds.good_roce !== undefined && latestRoce < thresholds.good_roce) {
+  if (latestRoce !== null && thresholds.goodRoce && latestRoce < thresholds.goodRoce) {
     weaknesses.push({
       point: "ROCE below sector threshold — capital not working hard enough",
-      evidence: `ROCE ${latestRoce.toFixed(1)}% vs threshold ${thresholds.good_roce}%`,
-      strength: latestRoce < thresholds.good_roce * 0.7 ? "HIGH" : "MEDIUM",
+      evidence: `ROCE ${latestRoce.toFixed(1)}% vs threshold ${thresholds.goodRoce}%`,
+      strength: latestRoce < thresholds.goodRoce * 0.7 ? "HIGH" : "MEDIUM",
     });
   }
 
   // High debt
-  if (stock.debt_to_equity !== null && stock.debt_to_equity > thresholds.acceptable_de) {
+  if (stock.debt_to_equity !== null && stock.debt_to_equity > thresholds.acceptableDE) {
     weaknesses.push({
       point: "Leverage above sector threshold",
-      evidence: `D/E ${stock.debt_to_equity.toFixed(2)}x vs threshold ${thresholds.acceptable_de}x`,
-      strength: stock.debt_to_equity > thresholds.acceptable_de * 1.5 ? "HIGH" : "MEDIUM",
+      evidence: `D/E ${stock.debt_to_equity.toFixed(2)}x vs threshold ${thresholds.acceptableDE}x`,
+      strength: stock.debt_to_equity > thresholds.acceptableDE * 1.5 ? "HIGH" : "MEDIUM",
     });
   }
 
   // Compressing OPM
   if (opmTrend === "DOWN") {
-    const earliestOpmRaw = stock.opm && stock.opm.length > 0 ? stock.opm[0] : undefined;
-    const earliestOpm: number | null = earliestOpmRaw ?? null;
+    const earliestOpm = stock.opm && stock.opm.length > 0 ? stock.opm[0] : null;
     weaknesses.push({
       point: "Operating margin compression trend",
       evidence: latestOpm !== null && earliestOpm !== null
@@ -278,9 +263,10 @@ export function generateSwot(stock: StockData): SwotResult {
   // Borrowings rising faster than revenue
   if (
     stock.borrowings !== null &&
-    stock.compounded_sales_growth?.["3y"] !== undefined &&
-    stock.compounded_sales_growth["3y"] !== null
+    stock.compounded_sales_growth?.["3Year"] !== undefined &&
+    stock.compounded_sales_growth["3Year"] !== null
   ) {
+    // Proxy check: if reserves growth is slow vs borrowings absolute level
     if (stock.reserves !== null && stock.borrowings > stock.reserves * 0.8) {
       weaknesses.push({
         point: "Borrowings large relative to reserves — balance sheet stretched",
@@ -291,8 +277,8 @@ export function generateSwot(stock: StockData): SwotResult {
   }
 
   // Slowing profit growth
-  const profit3y = stock.compounded_profit_growth?.["3y"];
-  const profitTtm = stock.compounded_profit_growth?.["ttm"];
+  const profit3y = stock.compounded_profit_growth?.["3Year"];
+  const profitTtm = stock.compounded_profit_growth?.["TTM"];
   if (
     profit3y !== null &&
     profit3y !== undefined &&
@@ -313,13 +299,13 @@ export function generateSwot(stock: StockData): SwotResult {
 
   // Small / Mid cap with room to grow
   if (
-    stock.market_cap_category === "Small" ||
-    stock.market_cap_category === "Mid"
+    stock.market_cap_category === "Small Cap" ||
+    stock.market_cap_category === "Mid Cap"
   ) {
     if (rev5y !== null && rev5y !== undefined && rev5y >= 12) {
       opportunities.push({
         point: "Mid/Small cap with demonstrated growth runway",
-        evidence: `${stock.market_cap_category} cap with 5Y Sales CAGR ${rev5y.toFixed(1)}%`,
+        evidence: `${stock.market_cap_category} with 5Y Sales CAGR ${rev5y.toFixed(1)}%`,
         strength: "MEDIUM",
       });
     }
@@ -329,16 +315,21 @@ export function generateSwot(stock: StockData): SwotResult {
   if (opmTrend === "UP" && latestOpm !== null && latestOpm < 25) {
     opportunities.push({
       point: "Operating leverage headroom — margins still expanding",
-      evidence: `OPM ${(latestOpm).toFixed(1)}% and rising; expansion potential remains`,
+      evidence: `OPM ${latestOpm.toFixed(1)}% and rising; expansion potential remains`,
       strength: "MEDIUM",
     });
   }
 
-  // Low debt vs reserves (financial flexibility)
-  if (stock.borrowings !== null && stock.reserves !== null && stock.borrowings < stock.reserves * 0.3) {
+  // Debt reduction in progress (borrowings declining)
+  const borrowingsTrend = stock.borrowings !== null && stock.reserves !== null
+    ? stock.borrowings < stock.reserves * 0.3
+      ? "LOW_DEBT"
+      : null
+    : null;
+  if (borrowingsTrend === "LOW_DEBT") {
     opportunities.push({
       point: "Balance sheet deleveraging trajectory — financial flexibility improving",
-      evidence: `Borrowings ₹${stock.borrowings.toFixed(0)} Cr = ${((stock.borrowings / stock.reserves) * 100).toFixed(0)}% of reserves`,
+      evidence: `Borrowings ₹${stock.borrowings?.toFixed(0)} Cr = ${((stock.borrowings! / stock.reserves!) * 100).toFixed(0)}% of reserves`,
       strength: "LOW",
     });
   }
@@ -346,9 +337,8 @@ export function generateSwot(stock: StockData): SwotResult {
   // Strong ROCE with low leverage = capacity to take on growth investment
   if (
     latestRoce !== null &&
-    thresholds.good_roce !== null &&
-    thresholds.good_roce !== undefined &&
-    latestRoce >= thresholds.good_roce &&
+    thresholds.goodRoce &&
+    latestRoce >= thresholds.goodRoce &&
     stock.debt_to_equity !== null &&
     stock.debt_to_equity <= 0.5
   ) {
@@ -361,6 +351,7 @@ export function generateSwot(stock: StockData): SwotResult {
 
   // FII buying trend (institutional accumulation signal)
   if (stock.fii_holding !== null && stock.fii_holding > 10) {
+    // Simple proxy — if FII holding is meaningful, flag as opportunity signal
     opportunities.push({
       point: "Meaningful FII presence — institutional validation",
       evidence: `FII holding ${stock.fii_holding.toFixed(1)}%`,
@@ -382,7 +373,7 @@ export function generateSwot(stock: StockData): SwotResult {
   }
 
   // Promoter selling — consecutive quarter decline
-  const promDeclines = consecutiveDeclineCount(stock.promoter_holding_trend.map((x) => x.pct));
+  const promDeclines = consecutiveDeclineCount(stock.promoter_holding_trend ?? null);
   if (promDeclines >= 3) {
     threats.push({
       point: "Promoter holding declining for multiple consecutive quarters",
@@ -392,23 +383,21 @@ export function generateSwot(stock: StockData): SwotResult {
   }
 
   // Sharp promoter stake reduction total
-  if (stock.promoter_holding_trend.length >= 4) {
-    const pcts = stock.promoter_holding_trend.map((x) => x.pct);
-    const first = pcts[0];
-    const last = pcts[pcts.length - 1];
-    if (first !== undefined && last !== undefined) {
-      const recentDrop = first - last;
+  if (stock.promoter_holding_trend && stock.promoter_holding_trend.length >= 4) {
+    const nums = stock.promoter_holding_trend.filter((v): v is number => v !== null);
+    if (nums.length >= 4) {
+      const recentDrop = nums[0] - nums[nums.length - 1];
       if (recentDrop > 5) {
         threats.push({
           point: "Promoter has reduced stake significantly over available period",
-          evidence: `Promoter holding fell by ${recentDrop.toFixed(1)}pp over ${pcts.length} quarters`,
+          evidence: `Promoter holding fell by ${recentDrop.toFixed(1)}pp over ${nums.length} quarters`,
           strength: recentDrop > 10 ? "HIGH" : "MEDIUM",
         });
       }
     }
   }
 
-  // Low FII ownership
+  // FII selling trend (if both FII low and trend down — proxy)
   if (stock.fii_holding !== null && stock.fii_holding < 3) {
     threats.push({
       point: "Low FII ownership — limited institutional sponsorship",
@@ -420,33 +409,33 @@ export function generateSwot(stock: StockData): SwotResult {
   // Valuation excess vs sector PE ceiling
   if (
     stock.pe_ratio !== null &&
-    thresholds.pe_range &&
-    stock.pe_ratio > thresholds.pe_range[1] * 1.3
+    thresholds.peRange &&
+    stock.pe_ratio > thresholds.peRange[1] * 1.3
   ) {
     threats.push({
       point: "Valuation significantly above sector PE ceiling",
-      evidence: `P/E ${stock.pe_ratio.toFixed(1)}x vs sector ceiling ${thresholds.pe_range[1]}x`,
-      strength: stock.pe_ratio > thresholds.pe_range[1] * 1.6 ? "HIGH" : "MEDIUM",
+      evidence: `P/E ${stock.pe_ratio.toFixed(1)}x vs sector ceiling ${thresholds.peRange[1]}x`,
+      strength: stock.pe_ratio > thresholds.peRange[1] * 1.6 ? "HIGH" : "MEDIUM",
     });
   }
 
   // Rising D/E with accelerating borrowings
   if (
     stock.debt_to_equity !== null &&
-    stock.debt_to_equity > thresholds.acceptable_de * 1.2
+    stock.debt_to_equity > thresholds.acceptableDE * 1.2
   ) {
     threats.push({
       point: "Leverage meaningfully above sector norms — balance sheet risk",
-      evidence: `D/E ${stock.debt_to_equity.toFixed(2)}x vs sector norm ${thresholds.acceptable_de}x`,
+      evidence: `D/E ${stock.debt_to_equity.toFixed(2)}x vs sector norm ${thresholds.acceptableDE}x`,
       strength: "MEDIUM",
     });
   }
 
-  // Small/Micro cap exit liquidity risk (below ₹500 Cr MCap)
+  // Small/Micro cap exit liquidity risk (below ₹500 Cr MCap estimate)
   if (
     stock.market_cap !== null &&
     stock.market_cap < 500 &&
-    stock.market_cap_category === "Small"
+    stock.market_cap_category === "Small Cap"
   ) {
     threats.push({
       point: "Low market cap — exit liquidity may be constrained",

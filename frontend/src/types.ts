@@ -79,14 +79,18 @@ export interface StockData {
   compounded_profit_growth: { "3y": number | null; "5y": number | null; "10y": number | null; ttm: number | null };
   stock_price_cagr: { "1y": number | null; "3y": number | null; "5y": number | null; "10y": number | null };
   roe_history: { "3y": number | null; "5y": number | null; "10y": number | null; last_year: number | null };
+  bse_code: string | null;
   listed_since: string | null;
   data_source: string;
   fetched_at: string;
 }
 
+// ─── SWOT (V2 — evidence + strength per item) ─────────────────────────────────
+
 export interface SwotItem {
-  label: string;
-  detail: string;
+  point: string;
+  evidence: string;
+  strength: "HIGH" | "MEDIUM" | "LOW";
 }
 
 export interface SwotResult {
@@ -94,8 +98,16 @@ export interface SwotResult {
   weaknesses: SwotItem[];
   opportunities: SwotItem[];
   threats: SwotItem[];
-  summary: { s: number; w: number; o: number; t: number };
+  summary: {
+    strengths: number;
+    weaknesses: number;
+    opportunities: number;
+    threats: number;
+    posture: string;
+  };
 }
+
+// ─── Trendlyne ────────────────────────────────────────────────────────────────
 
 export interface TrendlyneSwotItem {
   text: string;
@@ -109,7 +121,6 @@ export interface TrendlyneChecklistItem {
 
 export interface TrendlyneData {
   beta: number | null;
-
   tl_swot: {
     strengths: TrendlyneSwotItem[];
     weaknesses: TrendlyneSwotItem[];
@@ -117,19 +128,15 @@ export interface TrendlyneData {
     threats: TrendlyneSwotItem[];
     counts: { s: number; w: number; o: number; t: number } | null;
   } | null;
-
   /** @deprecated use tl_swot.counts */
   swot_counts: { s: number; w: number; o: number; t: number } | null;
-
   dvm_scores: {
     durability: number | null;
     valuation: number | null;
     momentum: number | null;
     label: string | null;
   } | null;
-
   checklist: TrendlyneChecklistItem[] | null;
-
   key_metrics: {
     market_cap: number | null;
     pe_ttm: number | null;
@@ -148,7 +155,6 @@ export interface TrendlyneData {
     roe_annual: number | null;
     roa_annual: number | null;
   } | null;
-
   analyst_consensus: {
     recommendation: string | null;
     count: number | null;
@@ -161,84 +167,183 @@ export interface TrendlyneData {
       strong_buy: number | null;
     } | null;
   } | null;
-
   /** @deprecated use analyst_consensus.target_price */
   analyst_target_price: number | null;
   /** @deprecated use analyst_consensus.count */
   analyst_count: number | null;
-
   support_resistance: {
     resistance: [number | null, number | null, number | null];
     support: [number | null, number | null, number | null];
   } | null;
-
-  moving_averages: {
-    bullish: number | null;
-    bearish: number | null;
-  } | null;
-
+  moving_averages: { bullish: number | null; bearish: number | null } | null;
   shareholding: {
     promoters: number | null;
     fii: number | null;
     dii: number | null;
     public_holding: number | null;
   } | null;
-
   retail_sentiment: {
     buy_pct: number | null;
     sell_pct: number | null;
     hold_pct: number | null;
     total_votes: number | null;
   } | null;
-
   fetched: boolean;
   error: string | null;
 }
 
-export interface EvaluationReport {
-  overview: Record<string, string | number | null>;
-  flags: { type: "red" | "amber" | "green"; title: string; description: string }[];
-  benchmarks: { sector_index: string; broad_index: string; index_fund: string };
-  financials: {
-    profitability: Record<string, (string | number)[]>;
-    balance_sheet: Record<string, string | number>;
-    cash_flow: { year: string; operating: number; investing: number; financing: number }[];
-    health_verdict: "STRONG" | "ADEQUATE" | "WEAK" | "DISTRESSED";
-  };
-  valuation: {
-    metrics: { metric: string; current: string; median_5y: string; sector_median: string; assessment: string }[];
-    zone: "UNDERVALUED" | "FAIR" | "OVERVALUED" | "EXPENSIVE";
-    peers: { name: string; pe: number | string; pb: number | string; roe: number | string }[];
-    price_performance: { period: string; stock: string; sector: string; nifty: string; alpha: string }[];
-    margin_of_safety: string;
-  };
-  quality_checks: {
-    id: number;
-    name: string;
-    critical: boolean;
-    result: "PASS" | "FAIL" | "CONDITIONAL";
-    detail: string;
-  }[];
-  quality_score: { earned: number; total: number; percentage: number; label: "GOOD" | "MODERATE" | "BAD" };
-  compatibility: {
-    code: string;
-    name: string;
-    result: "MATCH" | "CONCERN" | "MISMATCH";
-    reason: string;
-  }[];
-  compatibility_overall: "STRONG" | "MODERATE" | "POOR";
-  verdict: {
-    label: "BUY" | "BUY_WITH_CAUTION" | "WAIT" | "NOT_SUITABLE" | "AVOID";
-    color: "green" | "amber" | "red";
-    summary: string;
-    what_works: string[];
-    what_to_watch: string[];
-    index_comparison: string;
-    review_triggers: string[];
-  };
-  data_gaps: { metric: string; impact: "MATERIAL" | "MINOR"; explanation: string; check_url: string }[];
-  confidence: { level: "HIGH" | "MODERATE" | "LOW"; live_count: number; total: number };
+// ─── EvaluationReport (V2 — 15-step framework) ───────────────────────────────
+
+export interface EvaluationOverview {
+  company_anchor: string;
+  data_quality: "HIGH_INTEGRITY" | "ADEQUATE" | "FRAGMENTED" | "WEAK";
+  data_quality_notes: string;
+  business_quality: "ELITE" | "STRONG" | "AVERAGE" | "FRAGILE";
+  business_quality_rationale: string;
+  growth_type:
+    | "EFFICIENT_COMPOUNDING" | "MARGIN_EXPANSION_STORY" | "DEBT_FUELED_GROWTH"
+    | "CYCLICAL_PEAK" | "DETERIORATING" | "EARLY_STAGE" | "LOW_QUALITY";
+  moat_type:
+    | "COST_ADVANTAGE" | "SWITCHING_COSTS" | "NETWORK_EFFECTS"
+    | "INTANGIBLE_ASSETS" | "EFFICIENT_SCALE" | "NO_MOAT_IDENTIFIED";
+  moat_width: "WIDE" | "NARROW" | "NONE";
+  moat_structural_or_cyclical: "STRUCTURAL" | "CYCLICAL" | "UNCLEAR";
+  moat_rationale: string;
+  earnings_quality: "CLEAN" | "ACCEPTABLE" | "QUESTIONABLE" | "WEAK";
+  earnings_quality_rationale: string;
+  governance_posture: "STRONG" | "ACCEPTABLE" | "WATCHLIST" | "HIGH_RISK";
+  governance_rationale: string;
+  executive_summary: string;
+  what_works: string[];
+  what_worries_me: string[];
 }
+
+export interface EvaluationFlag {
+  type: "RED" | "AMBER" | "GREEN";
+  title: string;
+  description: string;
+}
+
+export interface EvaluationFinancials {
+  health_verdict: "STRONG" | "ADEQUATE" | "WEAK" | "DISTRESSED";
+  health_rationale: string;
+  revenue_cagr_3y: number | null;
+  profit_cagr_3y: number | null;
+  ocf_to_pat_assessment: string;
+  fcf_assessment: string;
+  working_capital_assessment: string;
+  weighted_expected_return_pct: number | null;
+}
+
+export interface EvaluationValuation {
+  zone: "UNDERVALUED" | "FAIR" | "OVERVALUED" | "EXPENSIVE";
+  justified_pe: number | null;
+  implied_growth_rate_priced_in: number | null;
+  iv_conservative: number | null;
+  iv_optimistic: number | null;
+  risk_reward_ratio: number | null;
+  margin_of_safety_pct: number | null;
+  trendlyne_integration: string;
+  valuation_narrative: string;
+}
+
+export interface MarketExpectationAnalysis {
+  implied_eps_cagr_required: string;
+  derating_risks: string[];
+  story_type: "COMPOUNDING" | "RE_RATING" | "CYCLICAL_TRADE";
+  what_market_gets_wrong: string;
+}
+
+export interface EvaluationScenario {
+  conditions: string;
+  what_breaks: string;
+  target_price: number | null;
+  probability_pct: number;
+}
+
+export interface EvaluationScenarios {
+  bull: EvaluationScenario;
+  base: EvaluationScenario;
+  bear: EvaluationScenario;
+}
+
+export interface EntryStrategy {
+  entry_mode: "LUMP_SUM" | "STAGGERED_3_TRANCHES" | "STAGGERED_5_TRANCHES" | "WAIT_FOR_TRIGGER";
+  entry_mode_rationale: string;
+  suggested_position_size: string;
+  thesis_horizon: string;
+  exit_signal: string;
+}
+
+export interface QualityCheck {
+  id: string;
+  label: string;
+  result: "PASS" | "FAIL" | "CONDITIONAL" | "DATA_UNAVAILABLE";
+  finding: string;
+}
+
+export interface QualityScore {
+  earned: number;
+  total: number;
+  percentage: number;
+  label: "GOOD" | "MODERATE" | "BAD";
+}
+
+export interface CompatibilityItem {
+  dimension: string;
+  result: "MATCH" | "CONCERN" | "MISMATCH";
+  note: string;
+}
+
+export interface EvaluationBenchmarks {
+  sector_index: string;
+  broad_index: string;
+  index_fund_alternative: string;
+  benchmark_note: string;
+}
+
+export interface NewsAssessment {
+  overall_impact: "THESIS_CONFIRMING" | "THESIS_NEUTRAL" | "THESIS_RISKING" | "THESIS_CHANGING";
+  key_findings: string[];
+  official_disclosure_summary: string;
+  media_coverage_summary: string;
+}
+
+export interface DataGap {
+  field: string;
+  materiality: "MATERIAL" | "MINOR";
+  impact: string;
+}
+
+export type Verdict = "BUY" | "BUY_WITH_CAUTION" | "WAIT" | "NOT_SUITABLE" | "AVOID";
+
+export interface EvaluationReport {
+  overview: EvaluationOverview;
+  flags: EvaluationFlag[];
+  financials: EvaluationFinancials;
+  valuation: EvaluationValuation;
+  market_expectation_analysis: MarketExpectationAnalysis;
+  scenarios: EvaluationScenarios;
+  entry_strategy: EntryStrategy;
+  quality_checks: QualityCheck[];
+  quality_score: QualityScore;
+  compatibility: CompatibilityItem[];
+  compatibility_overall: "STRONG" | "MODERATE" | "POOR";
+  thesis_breakers: string[];
+  monitorables: string[];
+  conviction_improvers: string[];
+  conviction_reducers: string[];
+  benchmarks: EvaluationBenchmarks;
+  news_assessment: NewsAssessment;
+  verdict: Verdict;
+  verdict_summary: string;
+  review_triggers: string[];
+  confidence: "HIGH" | "MODERATE" | "LOW";
+  confidence_rationale: string;
+  data_gaps: DataGap[];
+}
+
+// ─── Investor profile & request ───────────────────────────────────────────────
 
 export interface InvestorProfile {
   age: number;
@@ -259,9 +364,62 @@ export interface EvaluateRequest {
   profile: InvestorProfile;
 }
 
+// ─── News Sentiment Analysis ──────────────────────────────────────────────────
+
+export type SentimentScore =
+  | "STRONGLY_BULLISH" | "BULLISH" | "NEUTRAL" | "BEARISH" | "STRONGLY_BEARISH";
+export type SignalSentiment = "POSITIVE" | "NEUTRAL" | "NEGATIVE" | "MIXED";
+export type FlagType = "RISK" | "OPPORTUNITY" | "WATCH";
+export type FlagCategory =
+  | "Corporate Action" | "Regulatory" | "Insider Activity"
+  | "Management" | "Financials" | "Operational" | "Market" | "Other";
+export type CatalystHorizon = "NEAR_TERM" | "MEDIUM_TERM" | "LONG_TERM";
+export type InstitutionalAction = "ACCUMULATE" | "HOLD" | "REDUCE" | "MONITOR" | "AVOID";
+
+export interface NewsSentimentAnalysis {
+  overall: {
+    score: SentimentScore;
+    confidence: "HIGH" | "MODERATE" | "LOW";
+    headline: string;
+    summary: string;
+  };
+  signal_breakdown: {
+    official: { sentiment: SignalSentiment; count: number; key_events: string[] };
+    media: { sentiment: SignalSentiment; count: number; dominant_themes: string[] };
+  };
+  institutional_flags: {
+    type: FlagType;
+    category: FlagCategory;
+    title: string;
+    detail: string;
+  }[];
+  price_catalysts: {
+    horizon: CatalystHorizon;
+    direction: "POSITIVE" | "NEGATIVE";
+    event: string;
+    expected_impact: string;
+  }[];
+  institutional_action: {
+    recommendation: InstitutionalAction;
+    rationale: string;
+    time_horizon: string;
+    key_risks: string[];
+    key_upside: string[];
+  };
+  meta: {
+    items_analyzed: number;
+    official_count: number;
+    media_count: number;
+    freshness: "FRESH" | "RECENT" | "STALE";
+    coverage_period: string;
+  };
+}
+
 export interface EvaluateResponse {
   stock: StockData;
   swot: SwotResult;
   trendlyne: TrendlyneData | null;
+  news: NewsResponse | null;
+  sentiment: NewsSentimentAnalysis | null;
   evaluation: EvaluationReport;
 }

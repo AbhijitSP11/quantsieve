@@ -3,7 +3,7 @@
 // Fully aligned with the 15-step institutional evaluation prompt.
 // Every field in the JSON output schema has a corresponding TypeScript type here.
 
-import type { Verdict, HealthVerdict, ValuationZone, DataQuality } from "./common.js";
+import type { Verdict, HealthVerdict, ValuationZone, DataQuality } from "./common";
 
 // ─── Enums & Union Types ────────────────────────────────────────────────────
 

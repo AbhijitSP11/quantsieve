@@ -84,6 +84,7 @@ export interface StockData {
   };
 
   // Metadata
+  bse_code: string | null;          // BSE scrip code (e.g. "524816") — used for BSE announcements API
   listed_since: string | null;
   data_source: string;
   fetched_at: string; // ISO timestamp

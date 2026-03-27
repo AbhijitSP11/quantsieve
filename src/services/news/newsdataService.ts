@@ -29,8 +29,10 @@ export async function fetchNewsdataNews(
   }
 
   try {
-    const query = encodeURIComponent(`"${companyName}"`);
-    const url = `https://newsdata.io/api/1/latest?apikey=${apiKey}&q=${query}&country=in&language=en&category=business`;
+    // Strip legal suffixes so "Natco Pharma Ltd" → "Natco Pharma" for better matches
+    const shortName = companyName.replace(/\s+(ltd|limited|inc|corp|pvt)\.?$/i, "").trim();
+    const query = encodeURIComponent(shortName);
+    const url = `https://newsdata.io/api/1/latest?apikey=${apiKey}&q=${query}&country=in&language=en`;
 
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
 

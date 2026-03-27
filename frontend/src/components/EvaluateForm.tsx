@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { EvaluateRequest, InvestorProfile } from "../types";
+import { useAuth } from "../contexts/AuthContext";
+import { saveInvestorProfile } from "../lib/db";
 
 const DEFAULT_PROFILE: InvestorProfile = {
   age: 30,
@@ -32,18 +34,30 @@ const inputCls =
   "bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition font-inherit";
 
 export default function EvaluateForm({ onSubmit, loading, error }: Props) {
+  const { user, profile: userProfile } = useAuth();
   const [ticker, setTicker] = useState("");
   const [context, setContext] = useState<EvaluateRequest["entry_context"]>("first_purchase");
   const [thesis, setThesis] = useState("");
   const [profile, setProfile] = useState<InvestorProfile>(DEFAULT_PROFILE);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  // Auto-fill investor profile from saved Supabase profile when user signs in
+  useEffect(() => {
+    if (userProfile?.investor_profile && !profileLoaded) {
+      setProfile(userProfile.investor_profile);
+      setProfileLoaded(true);
+    }
+  }, [userProfile, profileLoaded]);
 
   function setP<K extends keyof InvestorProfile>(key: K, value: InvestorProfile[K]) {
     setProfile((p) => ({ ...p, [key]: value }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!ticker.trim()) return;
+    // Save investor profile to Supabase whenever a signed-in user submits
+    if (user) void saveInvestorProfile(profile);
     onSubmit({
       ticker: ticker.trim().toUpperCase(),
       entry_context: context,
@@ -76,7 +90,7 @@ export default function EvaluateForm({ onSubmit, loading, error }: Props) {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
+      <form onSubmit={(e) => void handleSubmit(e)} autoComplete="off" className="space-y-4">
         {/* Stock Details */}
         <div className="bg-white border border-slate-200 rounded-xl p-5">
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4 pb-3 border-b border-slate-100">

@@ -386,6 +386,15 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
       .find((t) => /\d{4}/.test(t))
       ?.match(/\d{4}/)?.[0] ?? null;
 
+  // BSE scrip code — Screener.in embeds it in BSE links like:
+  // href="https://www.bseindia.com/stock-share-price/natco-pharma/natcopharm/524816/"
+  let bseCode: string | null = null;
+  const bseHref = $('a[href*="bseindia.com/stock-share-price/"]').first().attr("href") ?? "";
+  const bseMatch = bseHref.match(/\/stock-share-price\/[^/]+\/[^/]+\/(\d{5,6})\/?/);
+  if (bseMatch?.[1]) {
+    bseCode = bseMatch[1];
+  }
+
   return {
     ticker: ticker.toUpperCase(),
     company_name: companyName,
@@ -437,6 +446,7 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
     stock_price_cagr: stockCagr,
     roe_history: roeHistory,
 
+    bse_code: bseCode,
     listed_since: listedSince,
     data_source: "screener.in",
     fetched_at: new Date().toISOString(),

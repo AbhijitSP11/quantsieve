@@ -13,27 +13,6 @@ function bseDateStr(d: Date): string {
   ].join("");
 }
 
-async function resolveBseCode(symbol: string): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `https://api.bseindia.com/BseIndiaAPI/api/Suggest/w?Type=SS&text=${encodeURIComponent(symbol)}`,
-      { headers: { "User-Agent": UA, Accept: "application/json", Referer: "https://www.bseindia.com/" }, signal: AbortSignal.timeout(6000) }
-    );
-    if (!res.ok) return null;
-    const data: unknown = await res.json();
-    const list = Array.isArray(data) ? data : (data as Record<string, unknown>)["Table"];
-    if (!Array.isArray(list) || list.length === 0) return null;
-    const match = (list as Record<string, unknown>[]).find(
-      (r) => String(r["NSESYMBOL"] ?? r["NSE_SYMBOL"] ?? "").toUpperCase() === symbol.toUpperCase()
-    ) ?? (list as Record<string, unknown>[])[0];
-    if (match === undefined) return null;
-    const code = match["SCRIP_CD"] ?? match["scripcode"] ?? match["ScripCode"];
-    return code != null ? String(code) : null;
-  } catch {
-    return null;
-  }
-}
-
 interface BseRow {
   NEWSSUB?: string;
   HEADLINE?: string;
@@ -52,9 +31,9 @@ export async function fetchBseAnnouncements(
   const providerName = "BSE India";
 
   try {
-    const code = bseCode ?? (await resolveBseCode(symbol));
+    const code = bseCode;
     if (!code) {
-      return { providerName, items: [], latencyMs: Date.now() - start, error: "BSE code not found for symbol" };
+      return { providerName, items: [], latencyMs: Date.now() - start, error: "BSE code not provided — pass bse_code from Screener data" };
     }
 
     const today = new Date();
@@ -87,16 +66,19 @@ export async function fetchBseAnnouncements(
       .filter((r) => r.NEWSSUB ?? r.HEADLINE)
       .map((r) => {
         const title = String(r.NEWSSUB ?? r.HEADLINE ?? "").trim();
-        const rawDate = r.NEWS_DT ?? r.NEWSDT ?? "";
-        const rawTime = r.DT_TM ?? "00:00:00";
-        // NEWS_DT is "DD/MM/YYYY", NEWSDT is "YYYYMMDD"
+        // BSE returns NEWS_DT as ISO-like "2025-03-27T15:46:41.12" (IST, no timezone suffix)
+        // DT_TM is the same format. Fall back to NEWSDT "YYYYMMDD" if present.
+        const rawDate = r.DT_TM ?? r.NEWS_DT ?? r.NEWSDT ?? "";
         let publishedAt: string;
-        if (rawDate.includes("/")) {
-          const [dd, mm, yyyy] = rawDate.split("/");
-          publishedAt = new Date(`${yyyy}-${mm}-${dd}T${rawTime}+05:30`).toISOString();
+        if (rawDate.includes("T") || rawDate.includes("-")) {
+          // ISO-like: treat as IST (+05:30)
+          const normalized = rawDate.replace(" ", "T");
+          const d = new Date(`${normalized}+05:30`);
+          publishedAt = isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
         } else if (rawDate.length === 8) {
+          // YYYYMMDD
           const yyyy = rawDate.slice(0, 4), mm = rawDate.slice(4, 6), dd = rawDate.slice(6, 8);
-          publishedAt = new Date(`${yyyy}-${mm}-${dd}T${rawTime}+05:30`).toISOString();
+          publishedAt = new Date(`${yyyy}-${mm}-${dd}T00:00:00+05:30`).toISOString();
         } else {
           publishedAt = new Date().toISOString();
         }

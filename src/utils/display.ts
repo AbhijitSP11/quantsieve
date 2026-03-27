@@ -44,7 +44,11 @@ function verdictChalk(color: string): ChalkInstance {
 }
 
 function flagEmoji(type: string): string {
-  return type === "green" ? "🟢" : type === "red" ? "🔴" : "🟡";
+  return type === "GREEN" ? "🟢" : type === "RED" ? "🔴" : "🟡";
+}
+
+function verdictColor(verdict: string): string {
+  return verdict === "BUY" ? "green" : verdict === "AVOID" ? "red" : "amber";
 }
 
 function qualityEmoji(result: string): string {
@@ -98,7 +102,7 @@ export function printSwotStatus(swot: SwotResult): void {
   console.log(chalk.bold("\n📊 SWOT Pre-Analysis..."));
   console.log(
     chalk.green(
-      `   ✓ ${swot.summary.s} Strengths | ${swot.summary.w} Weaknesses | ${swot.summary.o} Opportunities | ${swot.summary.t} Threats`
+      `   ✓ ${swot.summary.strengths} Strengths | ${swot.summary.weaknesses} Weaknesses | ${swot.summary.opportunities} Opportunities | ${swot.summary.threats} Threats`
     )
   );
 }
@@ -139,7 +143,7 @@ export function printFullReport(
   // ── 1. Snapshot ────────────────────────────────────────────────────────────
   section("SNAPSHOT");
   row("Company",        stock.company_name);
-  row("Sector",         report.overview["sector"] as string ?? stock.sector);
+  row("Sector",         stock.sector);
   row("Market Cap",     fmtCr(stock.market_cap) + (stock.market_cap_category ? `  (${stock.market_cap_category} Cap)` : ""));
   row("Current Price",  stock.current_price !== null ? `₹${stock.current_price}` : "—");
   row("52W High / Low", `₹${fmt(stock.high_52w)} / ₹${fmt(stock.low_52w)}`);
@@ -175,48 +179,48 @@ export function printFullReport(
   // ── 1c. SWOT Summary ───────────────────────────────────────────────────────
   if (swot !== undefined) {
     section("SWOT ANALYSIS  (rule-based)");
-    const { s, w, o, t } = swot.summary;
+    const { strengths: ns, weaknesses: nw, opportunities: no, threats: nt } = swot.summary;
     console.log(
       chalk.gray("  ") +
-        chalk.green(`${s}S`) +
+        chalk.green(`${ns}S`) +
         chalk.gray("  |  ") +
-        chalk.red(`${w}W`) +
+        chalk.red(`${nw}W`) +
         chalk.gray("  |  ") +
-        chalk.cyan(`${o}O`) +
+        chalk.cyan(`${no}O`) +
         chalk.gray("  |  ") +
-        chalk.yellow(`${t}T`)
+        chalk.yellow(`${nt}T`)
     );
     console.log();
 
     if (swot.strengths.length > 0) {
       console.log(chalk.bold.green("  Strengths"));
       for (const item of swot.strengths) {
-        console.log(chalk.green(`   ✓ ${item.label}`));
-        console.log(chalk.gray(`       ${item.detail}`));
+        console.log(chalk.green(`   ✓ ${item.point}`));
+        console.log(chalk.gray(`       ${item.evidence}`));
       }
       console.log();
     }
     if (swot.weaknesses.length > 0) {
       console.log(chalk.bold.red("  Weaknesses"));
       for (const item of swot.weaknesses) {
-        console.log(chalk.red(`   ✗ ${item.label}`));
-        console.log(chalk.gray(`       ${item.detail}`));
+        console.log(chalk.red(`   ✗ ${item.point}`));
+        console.log(chalk.gray(`       ${item.evidence}`));
       }
       console.log();
     }
     if (swot.opportunities.length > 0) {
       console.log(chalk.bold.cyan("  Opportunities"));
       for (const item of swot.opportunities) {
-        console.log(chalk.cyan(`   ◆ ${item.label}`));
-        console.log(chalk.gray(`       ${item.detail}`));
+        console.log(chalk.cyan(`   ◆ ${item.point}`));
+        console.log(chalk.gray(`       ${item.evidence}`));
       }
       console.log();
     }
     if (swot.threats.length > 0) {
       console.log(chalk.bold.yellow("  Threats"));
       for (const item of swot.threats) {
-        console.log(chalk.yellow(`   ⚠ ${item.label}`));
-        console.log(chalk.gray(`       ${item.detail}`));
+        console.log(chalk.yellow(`   ⚠ ${item.point}`));
+        console.log(chalk.gray(`       ${item.evidence}`));
       }
     }
   }
@@ -224,112 +228,37 @@ export function printFullReport(
   // ── 2. Flags ───────────────────────────────────────────────────────────────
   section("FLAGS");
   for (const flag of report.flags) {
-    const labelColor = flag.type === "green" ? chalk.green : flag.type === "red" ? chalk.red : chalk.yellow;
+    const labelColor = flag.type === "GREEN" ? chalk.green : flag.type === "RED" ? chalk.red : chalk.yellow;
     console.log(`  ${flagEmoji(flag.type)}  ${labelColor(flag.title)}`);
     console.log(chalk.gray(`       ${flag.description}`));
   }
 
   // ── 3. Financials ──────────────────────────────────────────────────────────
   section("FINANCIAL HEALTH  ·  " + report.financials.health_verdict);
-
-  // Profitability mini-table
-  const prof = report.financials.profitability;
-  const profKeys = Object.keys(prof);
-  if (profKeys.length > 0) {
-    const firstKey = profKeys[0];
-    const cols = firstKey !== undefined ? (prof[firstKey]?.length ?? 0) : 0;
-    const colW = Math.floor((W - 20) / Math.max(cols - 1, 1));
-
-    // Header row
-    const headerRow = profKeys[0] !== undefined ? prof[profKeys[0]] : [];
-    let header = "  " + "Metric".padEnd(16);
-    for (let i = 1; i < (headerRow?.length ?? 0); i++) {
-      const yearLabel = String(headerRow?.[i] ?? `Y${i}`).slice(-2);
-      header += String(`FY${yearLabel}`).padStart(colW);
-    }
-    console.log(chalk.gray(header));
-    console.log(chalk.gray("  " + "─".repeat(W - 4)));
-
-    for (const key of profKeys) {
-      const vals = prof[key] ?? [];
-      let rowStr = "  " + key.padEnd(16);
-      for (let i = 1; i < vals.length; i++) {
-        const v = vals[i];
-        const cell = (v === "DATA_UNAVAILABLE" ? "—" : String(v)).padStart(colW);
-        rowStr += v === "DATA_UNAVAILABLE" ? chalk.gray(cell) : chalk.white(cell);
-      }
-      console.log(rowStr);
-    }
-  }
-
-  // Balance sheet
+  console.log(chalk.gray("  " + report.financials.health_rationale));
   console.log();
-  const bs = report.financials.balance_sheet;
-  row("Debt / Equity",    fmt(bs["Debt/Equity"]));
-  row("Interest Coverage",fmt(bs["Interest Coverage"], "×"));
-  row("Current Ratio",    fmt(bs["Current Ratio"]));
-  row("Total Assets",     typeof bs["Total Assets"] === "number" ? fmtCr(bs["Total Assets"]) : "—");
-  row("Borrowings",       typeof bs["Borrowings"] === "number" ? fmtCr(bs["Borrowings"]) : "—");
-  row("Reserves",         typeof bs["Reserves"] === "number" ? fmtCr(bs["Reserves"]) : "—");
-
-  // Cash flow table
-  console.log("\n" + chalk.gray("  Cash Flow (₹Cr)"));
-  console.log(chalk.gray("  " + "─".repeat(W - 4)));
-  const cfHeader = "  " + "Year".padEnd(12) + "Operating".padStart(12) + "Investing".padStart(12) + "Financing".padStart(12);
-  console.log(chalk.gray(cfHeader));
-  for (const cf of report.financials.cash_flow) {
-    const opColor  = cf.operating  >= 0 ? chalk.green : chalk.red;
-    const invColor = cf.investing  >= 0 ? chalk.green : chalk.red;
-    const finColor = cf.financing  >= 0 ? chalk.green : chalk.red;
-    console.log(
-      "  " + chalk.white(cf.year.padEnd(12)) +
-      opColor(String(cf.operating).padStart(12)) +
-      invColor(String(cf.investing).padStart(12)) +
-      finColor(String(cf.financing).padStart(12))
-    );
+  row("Revenue CAGR (3Y)", report.financials.revenue_cagr_3y !== null ? `${report.financials.revenue_cagr_3y}%` : "—");
+  row("Profit CAGR (3Y)",  report.financials.profit_cagr_3y  !== null ? `${report.financials.profit_cagr_3y}%`  : "—");
+  if (report.financials.weighted_expected_return_pct !== null) {
+    row("Wtd Expected Return", `${report.financials.weighted_expected_return_pct}%`);
   }
+  console.log();
+  console.log(chalk.gray("  OCF/PAT: ") + chalk.white(report.financials.ocf_to_pat_assessment));
+  console.log(chalk.gray("  FCF:     ") + chalk.white(report.financials.fcf_assessment));
+  console.log(chalk.gray("  WC:      ") + chalk.white(report.financials.working_capital_assessment));
 
   // ── 4. Valuation ───────────────────────────────────────────────────────────
   const zoneColor = (z: string) =>
     z === "UNDERVALUED" ? chalk.green(z) : z === "EXPENSIVE" ? chalk.red(z) : chalk.yellow(z);
 
   section(`VALUATION  ·  ${zoneColor(report.valuation.zone)}`);
-
-  // Metrics table
-  const mHeader = "  " + "Metric".padEnd(12) + "Current".padStart(12) + "5Y Median".padStart(12) + "Sector".padStart(12) + "Assess".padStart(10);
-  console.log(chalk.gray(mHeader));
-  console.log(chalk.gray("  " + "─".repeat(W - 4)));
-  for (const m of report.valuation.metrics) {
-    const assessColor = m.assessment === "CHEAP" ? chalk.green : m.assessment === "EXPENSIVE" ? chalk.red : chalk.yellow;
-    const curr = m.current === "DATA_UNAVAILABLE" ? chalk.gray("—") : chalk.white(m.current);
-    const med  = m.median_5y === "DATA_UNAVAILABLE" ? chalk.gray("—") : chalk.gray(m.median_5y);
-    const sec  = m.sector_median === "DATA_UNAVAILABLE" ? chalk.gray("—") : chalk.gray(m.sector_median);
-    const ass  = m.assessment === "DATA_UNAVAILABLE" ? chalk.gray("—") : assessColor(m.assessment);
-    console.log("  " + m.metric.padEnd(12) + curr.padStart(12) + med.padStart(12) + sec.padStart(12) + ass.padStart(10));
-  }
-
-  // Peers
-  console.log("\n" + chalk.gray("  Peer Comparison"));
-  console.log(chalk.gray("  " + "─".repeat(W - 4)));
-  const pHeader = "  " + "Company".padEnd(30) + "P/E".padStart(8) + "P/B".padStart(8) + "ROE".padStart(8);
-  console.log(chalk.gray(pHeader));
-  // Current stock first
-  console.log(
-    "  " + chalk.cyan(chalk.bold(stock.company_name.padEnd(30))) +
-    chalk.cyan(fmt(stock.pe_ratio, "×").padStart(8)) +
-    chalk.cyan(fmt(stock.pb_ratio, "×").padStart(8)) +
-    chalk.cyan(fmt(stock.roe, "%").padStart(8))
-  );
-  for (const peer of report.valuation.peers) {
-    console.log(
-      "  " + chalk.gray(peer.name.padEnd(30)) +
-      chalk.gray(String(peer.pe).padStart(8)) +
-      chalk.gray(String(peer.pb).padStart(8)) +
-      chalk.gray(String(peer.roe).padStart(8))
-    );
-  }
-
-  console.log("\n" + chalk.gray(`  ${report.valuation.margin_of_safety}`));
+  row("Justified P/E",     report.valuation.justified_pe !== null ? `${report.valuation.justified_pe}×` : "—");
+  row("IV Conservative",   report.valuation.iv_conservative !== null ? `₹${report.valuation.iv_conservative}` : "—");
+  row("IV Optimistic",     report.valuation.iv_optimistic  !== null ? `₹${report.valuation.iv_optimistic}` : "—");
+  row("Risk/Reward",       report.valuation.risk_reward_ratio !== null ? `${report.valuation.risk_reward_ratio}:1` : "—");
+  row("Margin of Safety",  report.valuation.margin_of_safety_pct !== null ? `${report.valuation.margin_of_safety_pct}%` : "—");
+  console.log();
+  console.log(chalk.gray("  " + report.valuation.valuation_narrative));
 
   // ── 5. Quality Checks ─────────────────────────────────────────────────────
   const { earned, total, percentage, label } = report.quality_score;
@@ -337,77 +266,68 @@ export function printFullReport(
   section(`QUALITY CHECKS  ·  ${scoreColor(`${earned}/${total}  (${percentage.toFixed(0)}%)  ${label}`)}`);
 
   for (const qc of report.quality_checks) {
-    const critTag = qc.critical ? chalk.red(" [C]") : "    ";
-    console.log(`  ${qualityEmoji(qc.result)}${critTag}  ${chalk.white(qc.name)}`);
+    console.log(`  ${qualityEmoji(qc.result)}  ${chalk.gray(qc.id.padEnd(6))}  ${chalk.white(qc.label)}`);
     if (qc.result !== "PASS") {
-      console.log(chalk.gray(`            ${qc.detail}`));
+      console.log(chalk.gray(`                ${qc.finding}`));
     }
   }
-  console.log(chalk.gray("\n  [C] = Critical check"));
 
   // ── 6. Compatibility ──────────────────────────────────────────────────────
   const overallColor = report.compatibility_overall === "STRONG" ? chalk.green : report.compatibility_overall === "POOR" ? chalk.red : chalk.yellow;
   section(`INVESTOR COMPATIBILITY  ·  ${overallColor(report.compatibility_overall)}`);
 
   for (const c of report.compatibility) {
-    console.log(`  ${compatEmoji(c.result).padEnd(20)}  ${chalk.gray(c.code)}  ${chalk.white(c.name)}`);
-    console.log(chalk.gray(`                         ${c.reason}`));
+    console.log(`  ${compatEmoji(c.result).padEnd(20)}  ${chalk.white(c.dimension)}`);
+    console.log(chalk.gray(`                         ${c.note}`));
   }
 
   // ── 7. Verdict ────────────────────────────────────────────────────────────
-  const vc = verdictChalk(report.verdict.color);
-  const emoji = report.verdict.color === "green" ? "🟢" : report.verdict.color === "red" ? "🔴" : "🟡";
+  const vColor = verdictColor(report.verdict);
+  const vc = verdictChalk(vColor);
+  const emoji = vColor === "green" ? "🟢" : vColor === "red" ? "🔴" : "🟡";
 
   console.log("\n" + chalk.bold.white(line("━")));
-  console.log(`  ${emoji}  ${vc("VERDICT: " + report.verdict.label.replace(/_/g, " "))}`);
+  console.log(`  ${emoji}  ${vc("VERDICT: " + report.verdict.replace(/_/g, " "))}`);
   console.log(chalk.bold.white(line("━")));
   console.log();
-  console.log(chalk.white("  " + report.verdict.summary));
+  console.log(chalk.white("  " + report.verdict_summary));
   console.log();
 
   console.log(chalk.bold.green("  ✅ What works:"));
-  for (const p of report.verdict.what_works) console.log(chalk.white(`     •  ${p}`));
+  for (const p of report.overview.what_works) console.log(chalk.white(`     •  ${p}`));
   console.log();
 
-  console.log(chalk.bold.yellow("  ⚠️  What to watch:"));
-  for (const p of report.verdict.what_to_watch) console.log(chalk.white(`     •  ${p}`));
-  console.log();
-
-  console.log(chalk.bold("  📊 vs Index:"));
-  console.log(chalk.white(`     ${report.verdict.index_comparison}`));
+  console.log(chalk.bold.yellow("  ⚠️  Monitorables:"));
+  for (const p of report.monitorables) console.log(chalk.white(`     •  ${p}`));
   console.log();
 
   console.log(chalk.bold("  🔔 Review triggers:"));
-  for (const t of report.verdict.review_triggers) console.log(chalk.gray(`     •  ${t}`));
+  for (const t of report.review_triggers) console.log(chalk.gray(`     •  ${t}`));
 
   // ── 8. Benchmarks ─────────────────────────────────────────────────────────
   console.log();
   console.log(chalk.gray("  Benchmark alternatives:"));
   console.log(chalk.gray(`     Sector index : ${report.benchmarks.sector_index}`));
   console.log(chalk.gray(`     Broad index  : ${report.benchmarks.broad_index}`));
-  console.log(chalk.gray(`     Index fund   : ${report.benchmarks.index_fund}`));
+  console.log(chalk.gray(`     Index fund   : ${report.benchmarks.index_fund_alternative}`));
 
   // ── 9. Data Gaps ──────────────────────────────────────────────────────────
   if (report.data_gaps.length > 0) {
-    const material = report.data_gaps.filter((g) => g.impact === "MATERIAL");
+    const material = report.data_gaps.filter((g) => g.materiality === "MATERIAL");
     section(`DATA GAPS  ·  ${material.length} material`);
     for (const gap of report.data_gaps) {
-      const impactColor = gap.impact === "MATERIAL" ? chalk.red : chalk.gray;
-      console.log(`  ${impactColor(gap.impact.padEnd(10))}  ${chalk.white(gap.metric)}`);
-      console.log(chalk.gray(`                ${gap.explanation}`));
+      const impactColor = gap.materiality === "MATERIAL" ? chalk.red : chalk.gray;
+      console.log(`  ${impactColor(gap.materiality.padEnd(10))}  ${chalk.white(gap.field)}`);
+      console.log(chalk.gray(`                ${gap.impact}`));
     }
-    console.log(chalk.gray(`\n  Check: ${report.data_gaps[0]?.check_url ?? ""}`));
   }
 
   // ── 10. Confidence ────────────────────────────────────────────────────────
   console.log();
-  const confColor = report.confidence.level === "HIGH" ? chalk.green : report.confidence.level === "LOW" ? chalk.red : chalk.yellow;
+  const confColor = report.confidence === "HIGH" ? chalk.green : report.confidence === "LOW" ? chalk.red : chalk.yellow;
   console.log(chalk.gray("  " + line()));
-  console.log(
-    chalk.gray("  Confidence: ") +
-      confColor(report.confidence.level) +
-      chalk.gray(`  (${report.confidence.live_count}/${report.confidence.total} metrics live)`)
-  );
+  console.log(chalk.gray("  Confidence: ") + confColor(report.confidence));
+  console.log(chalk.gray("  " + report.confidence_rationale));
   console.log(chalk.gray("  " + line()) + "\n");
 }
 

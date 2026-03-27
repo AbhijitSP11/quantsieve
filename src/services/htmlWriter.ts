@@ -22,12 +22,16 @@ function fmtCr(v: number | null | undefined): string {
   return `₹${v.toLocaleString("en-IN")} Cr`;
 }
 
+function verdictColor(verdict: string): string {
+  return verdict === "BUY" ? "green" : verdict === "AVOID" ? "red" : "amber";
+}
+
 function verdictClass(color: string): string {
   return color === "green" ? "verdict-buy" : color === "red" ? "verdict-avoid" : "verdict-wait";
 }
 
 function flagClass(type: string): string {
-  return type === "green" ? "flag-green" : type === "red" ? "flag-red" : "flag-amber";
+  return type === "GREEN" ? "flag-green" : type === "RED" ? "flag-red" : "flag-amber";
 }
 
 function resultClass(result: string): string {
@@ -421,11 +425,10 @@ function css(): string {
 
 function renderCover(report: EvaluationReport, stock: StockData, input: EvaluationInput): string {
   const date = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-  const vc = verdictClass(report.verdict.color);
-  const confPct = Math.round((report.confidence.live_count / report.confidence.total) * 100);
-  const barClass = report.confidence.level === "HIGH" ? "bar-high" : report.confidence.level === "LOW" ? "bar-low" : "bar-moderate";
-
-  const verdictEmoji = report.verdict.color === "green" ? "🟢" : report.verdict.color === "red" ? "🔴" : "🟡";
+  const vColor = verdictColor(report.verdict);
+  const vc = verdictClass(vColor);
+  const barClass = report.confidence === "HIGH" ? "bar-high" : report.confidence === "LOW" ? "bar-low" : "bar-moderate";
+  const verdictEmoji = vColor === "green" ? "🟢" : vColor === "red" ? "🔴" : "🟡";
 
   return `
   <div class="cover">
@@ -433,7 +436,7 @@ function renderCover(report: EvaluationReport, stock: StockData, input: Evaluati
       <div class="cover-ticker">${esc(stock.ticker)}</div>
       <div class="cover-name">${esc(stock.company_name)}</div>
       <div class="cover-meta">
-        <span>${esc(report.overview["sector"] as string ?? stock.sector)}</span>
+        <span>${esc(stock.sector)}</span>
         <span>${esc(stock.market_cap_category ?? "")} Cap</span>
         <span>₹${esc(stock.current_price)} &nbsp;·&nbsp; P/E ${esc(stock.pe_ratio)}×</span>
         <span>Generated ${date}</span>
@@ -445,10 +448,10 @@ function renderCover(report: EvaluationReport, stock: StockData, input: Evaluati
     </div>
     <div class="cover-verdict ${vc}">
       <div class="verdict-sub">Verdict</div>
-      <div class="verdict-label">${verdictEmoji} ${esc(report.verdict.label.replace(/_/g, " "))}</div>
+      <div class="verdict-label">${verdictEmoji} ${esc(report.verdict.replace(/_/g, " "))}</div>
       <div class="confidence-bar">
-        <div>Confidence: ${esc(report.confidence.level)} &nbsp;(${report.confidence.live_count}/${report.confidence.total} metrics)</div>
-        <div class="bar-track"><div class="bar-fill ${barClass}" style="width:${confPct}%"></div></div>
+        <div>Confidence: ${esc(report.confidence)}</div>
+        <div class="bar-track"><div class="bar-fill ${barClass}" style="width:${report.confidence === "HIGH" ? 90 : report.confidence === "LOW" ? 30 : 60}%"></div></div>
       </div>
     </div>
   </div>`;
@@ -495,38 +498,8 @@ function renderFlags(report: EvaluationReport): string {
 }
 
 function renderFinancials(report: EvaluationReport): string {
-  const prof = report.financials.profitability;
-  const profKeys = Object.keys(prof);
-  const firstKey = profKeys[0];
-  const headerRow = firstKey !== undefined ? (prof[firstKey] ?? []) : [];
-
-  const tableRows = profKeys.map(key => {
-    const vals = prof[key] ?? [];
-    return `<tr>
-      <td>${esc(key)}</td>
-      ${vals.slice(1).map(v => `<td>${v === "DATA_UNAVAILABLE" ? '<span class="na">—</span>' : esc(v)}</td>`).join("")}
-    </tr>`;
-  }).join("");
-
-  const bs = report.financials.balance_sheet;
-  const bsCards = [
-    { label: "Debt / Equity", value: fmt(bs["Debt/Equity"]) },
-    { label: "Interest Coverage", value: fmt(bs["Interest Coverage"], "×") },
-    { label: "Current Ratio", value: fmt(bs["Current Ratio"]) },
-    { label: "Total Assets", value: typeof bs["Total Assets"] === "number" ? fmtCr(bs["Total Assets"] as number) : "—" },
-    { label: "Borrowings", value: typeof bs["Borrowings"] === "number" ? fmtCr(bs["Borrowings"] as number) : '<span class="na">—</span>' },
-    { label: "Reserves", value: typeof bs["Reserves"] === "number" ? fmtCr(bs["Reserves"] as number) : "—" },
-  ];
-
-  const cfRows = report.financials.cash_flow.map(cf => `
-    <tr>
-      <td>${esc(cf.year)}</td>
-      <td class="${cfClass(cf.operating)}">${cf.operating.toLocaleString("en-IN")}</td>
-      <td class="${cfClass(cf.investing)}">${cf.investing.toLocaleString("en-IN")}</td>
-      <td class="${cfClass(cf.financing)}">${cf.financing.toLocaleString("en-IN")}</td>
-    </tr>`).join("");
-
   const healthBadgeClass = healthClass(report.financials.health_verdict);
+  const { revenue_cagr_3y, profit_cagr_3y, weighted_expected_return_pct } = report.financials;
 
   return `
   <div class="section">
@@ -535,60 +508,47 @@ function renderFinancials(report: EvaluationReport): string {
       <span class="badge ${healthBadgeClass}">${esc(report.financials.health_verdict)}</span>
     </div>
 
-    <div class="table-wrap" style="margin-bottom:16px">
-      <table>
-        <thead><tr>
-          <th>Metric</th>
-          ${headerRow.slice(1).map(h => `<th>${esc(h)}</th>`).join("")}
-        </tr></thead>
-        <tbody>${tableRows}</tbody>
-      </table>
-    </div>
-
     <div class="bs-grid" style="margin-bottom:16px">
-      ${bsCards.map(c => `
-        <div class="bs-card">
-          <div class="bs-label">${esc(c.label)}</div>
-          <div class="bs-value">${c.value}</div>
-        </div>`).join("")}
+      <div class="bs-card">
+        <div class="bs-label">Revenue CAGR (3Y)</div>
+        <div class="bs-value">${revenue_cagr_3y !== null ? `${revenue_cagr_3y}%` : "—"}</div>
+      </div>
+      <div class="bs-card">
+        <div class="bs-label">Profit CAGR (3Y)</div>
+        <div class="bs-value">${profit_cagr_3y !== null ? `${profit_cagr_3y}%` : "—"}</div>
+      </div>
+      <div class="bs-card">
+        <div class="bs-label">Wtd. Expected Return</div>
+        <div class="bs-value">${weighted_expected_return_pct !== null ? `${weighted_expected_return_pct}%` : "—"}</div>
+      </div>
     </div>
 
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Cash Flow (₹Cr)</th><th>Operating</th><th>Investing</th><th>Financing</th></tr></thead>
-        <tbody>${cfRows}</tbody>
-      </table>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Health Rationale</div>
+      <div style="font-size:13px">${esc(report.financials.health_rationale)}</div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">OCF / PAT</div>
+      <div style="font-size:13px">${esc(report.financials.ocf_to_pat_assessment)}</div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Free Cash Flow</div>
+      <div style="font-size:13px">${esc(report.financials.fcf_assessment)}</div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Working Capital</div>
+      <div style="font-size:13px">${esc(report.financials.working_capital_assessment)}</div>
     </div>
   </div>`;
 }
 
 function renderValuation(report: EvaluationReport, stock: StockData): string {
-  const { zone, metrics, peers, margin_of_safety } = report.valuation;
-
-  const metricRows = metrics.map(m => `
-    <tr>
-      <td>${esc(m.metric)}</td>
-      <td>${m.current === "DATA_UNAVAILABLE" ? '<span class="na">—</span>' : esc(m.current)}</td>
-      <td>${m.median_5y === "DATA_UNAVAILABLE" ? '<span class="na">—</span>' : esc(m.median_5y)}</td>
-      <td>${m.sector_median === "DATA_UNAVAILABLE" ? '<span class="na">—</span>' : esc(m.sector_median)}</td>
-      <td>${m.assessment === "DATA_UNAVAILABLE" ? '<span class="na">—</span>' : `<span class="badge ${m.assessment === "CHEAP" ? "pass" : m.assessment === "EXPENSIVE" ? "fail" : "conditional"}">${esc(m.assessment)}</span>`}</td>
-    </tr>`).join("");
-
-  const peerRows = [
-    `<tr>
-      <td><strong>${esc(stock.company_name)}</strong></td>
-      <td>${fmt(stock.pe_ratio, "×")}</td>
-      <td>${fmt(stock.pb_ratio, "×")}</td>
-      <td>${fmt(stock.roe, "%")}</td>
-    </tr>`,
-    ...peers.map(p => `
-    <tr>
-      <td>${esc(p.name)}</td>
-      <td>${esc(p.pe)}</td>
-      <td>${esc(p.pb)}</td>
-      <td>${esc(p.roe)}</td>
-    </tr>`)
-  ].join("");
+  const { zone, justified_pe, iv_conservative, iv_optimistic, risk_reward_ratio, margin_of_safety_pct, trendlyne_integration, valuation_narrative } = report.valuation;
+  const mosPct = margin_of_safety_pct !== null ? margin_of_safety_pct : null;
+  const mosClass = mosPct !== null ? (mosPct >= 0 ? "pass" : "fail") : "";
 
   return `
   <div class="section">
@@ -597,22 +557,40 @@ function renderValuation(report: EvaluationReport, stock: StockData): string {
       <span class="zone-pill zone-${esc(zone)}">${esc(zone)}</span>
     </div>
 
-    <div class="table-wrap" style="margin-bottom:16px">
-      <table>
-        <thead><tr><th>Metric</th><th>Current</th><th>5Y Median</th><th>Sector Median</th><th>Assessment</th></tr></thead>
-        <tbody>${metricRows}</tbody>
-      </table>
+    <div class="bs-grid" style="margin-bottom:16px">
+      <div class="bs-card">
+        <div class="bs-label">Justified P/E</div>
+        <div class="bs-value">${justified_pe !== null ? `${justified_pe}×` : "—"}</div>
+      </div>
+      <div class="bs-card">
+        <div class="bs-label">Actual P/E</div>
+        <div class="bs-value">${fmt(stock.pe_ratio, "×")}</div>
+      </div>
+      <div class="bs-card">
+        <div class="bs-label">IV (Conservative)</div>
+        <div class="bs-value">${iv_conservative !== null ? `₹${iv_conservative}` : "—"}</div>
+      </div>
+      <div class="bs-card">
+        <div class="bs-label">IV (Optimistic)</div>
+        <div class="bs-value">${iv_optimistic !== null ? `₹${iv_optimistic}` : "—"}</div>
+      </div>
+      <div class="bs-card">
+        <div class="bs-label">Risk / Reward</div>
+        <div class="bs-value">${risk_reward_ratio !== null ? `${risk_reward_ratio}:1` : "—"}</div>
+      </div>
+      <div class="bs-card">
+        <div class="bs-label">Margin of Safety</div>
+        <div class="bs-value">${mosPct !== null ? `<span class="badge ${mosClass}">${mosPct > 0 ? "+" : ""}${mosPct}%</span>` : "—"}</div>
+      </div>
     </div>
 
-    <div class="table-wrap" style="margin-bottom:16px">
-      <table class="compat-table">
-        <thead><tr><th>Peer</th><th>P/E</th><th>P/B</th><th>ROE</th></tr></thead>
-        <tbody>${peerRows}</tbody>
-      </table>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Valuation Narrative</div>
+      <div style="font-size:13px">${esc(valuation_narrative)}</div>
     </div>
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-size:12px;color:var(--muted)">
-      📐 ${esc(margin_of_safety)}
+      📊 Trendlyne: ${esc(trendlyne_integration)}
     </div>
   </div>`;
 }
@@ -625,11 +603,8 @@ function renderQualityChecks(report: EvaluationReport): string {
     <div class="qc-card">
       <div class="qc-icon ${resultClass(qc.result)}">${resultIcon(qc.result)}</div>
       <div>
-        <div class="qc-name">
-          ${esc(qc.name)}
-          ${qc.critical ? '<span class="critical-tag">CRITICAL</span>' : ""}
-        </div>
-        ${qc.result !== "PASS" ? `<div class="qc-detail">${esc(qc.detail)}</div>` : ""}
+        <div class="qc-name">${esc(qc.id)} — ${esc(qc.label)}</div>
+        ${qc.result !== "PASS" ? `<div class="qc-detail">${esc(qc.finding)}</div>` : ""}
       </div>
     </div>`).join("");
 
@@ -650,10 +625,9 @@ function renderCompatibility(report: EvaluationReport): string {
 
   const rows = report.compatibility.map(c => `
     <tr>
-      <td>${esc(c.code)}</td>
-      <td>${esc(c.name)}</td>
+      <td colspan="2">${esc(c.dimension)}</td>
       <td><span class="${pillClass(c.result)}">${esc(c.result)}</span></td>
-      <td style="text-align:left">${esc(c.reason)}</td>
+      <td style="text-align:left">${esc(c.note)}</td>
     </tr>`).join("");
 
   return `
@@ -664,7 +638,7 @@ function renderCompatibility(report: EvaluationReport): string {
     </div>
     <div class="table-wrap">
       <table class="compat-table">
-        <thead><tr><th style="width:40px">Code</th><th>Check</th><th style="width:100px">Result</th><th style="text-align:left">Reason</th></tr></thead>
+        <thead><tr><th colspan="2">Dimension</th><th style="width:100px">Result</th><th style="text-align:left">Note</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -672,36 +646,44 @@ function renderCompatibility(report: EvaluationReport): string {
 }
 
 function renderVerdict(report: EvaluationReport): string {
-  const vc = verdictClass(report.verdict.color);
-  const emoji = report.verdict.color === "green" ? "🟢" : report.verdict.color === "red" ? "🔴" : "🟡";
+  const vColor = verdictColor(report.verdict);
+  const vc = verdictClass(vColor);
+  const emoji = vColor === "green" ? "🟢" : vColor === "red" ? "🔴" : "🟡";
 
   return `
   <div class="verdict-block ${vc}">
-    <div style="font-size:22px;font-weight:800;margin-bottom:12px">${emoji} ${esc(report.verdict.label.replace(/_/g, " "))}</div>
-    <div class="verdict-summary">${esc(report.verdict.summary)}</div>
+    <div style="font-size:22px;font-weight:800;margin-bottom:12px">${emoji} ${esc(report.verdict.replace(/_/g, " "))}</div>
+    <div class="verdict-summary">${esc(report.verdict_summary)}</div>
 
     <div class="verdict-cols">
       <div>
         <div class="verdict-col-title green">✅ What works</div>
         <ul class="verdict-list">
-          ${report.verdict.what_works.map(p => `<li>${esc(p)}</li>`).join("")}
+          ${report.overview.what_works.map(p => `<li>${esc(p)}</li>`).join("")}
         </ul>
       </div>
       <div>
-        <div class="verdict-col-title amber">⚠️ What to watch</div>
+        <div class="verdict-col-title amber">⚠️ What worries me</div>
         <ul class="verdict-list">
-          ${report.verdict.what_to_watch.map(p => `<li>${esc(p)}</li>`).join("")}
+          ${report.overview.what_worries_me.map(p => `<li>${esc(p)}</li>`).join("")}
         </ul>
       </div>
     </div>
 
-    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
-      📊 ${esc(report.verdict.index_comparison)}
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">🚨 Thesis Breakers</div>
+      <ul class="verdict-list" style="color:#ef4444">
+        ${report.thesis_breakers.map(t => `<li>${esc(t)}</li>`).join("")}
+      </ul>
     </div>
 
     <div class="verdict-triggers">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">🔔 Review Triggers</div>
-      ${report.verdict.review_triggers.map(t => `<span class="trigger-item">${esc(t)}</span>`).join("")}
+      ${report.review_triggers.map(t => `<span class="trigger-item">${esc(t)}</span>`).join("")}
+    </div>
+
+    <div style="margin-top:12px;font-size:12px;color:var(--muted)">
+      Confidence: <strong>${esc(report.confidence)}</strong> — ${esc(report.confidence_rationale)}
     </div>
   </div>`;
 }
@@ -713,21 +695,21 @@ function renderBenchmarks(report: EvaluationReport): string {
     <div class="bench-row">
       <div class="bench-card"><div class="bench-label">Sector Index</div><div class="bench-value">${esc(report.benchmarks.sector_index)}</div></div>
       <div class="bench-card"><div class="bench-label">Broad Index</div><div class="bench-value">${esc(report.benchmarks.broad_index)}</div></div>
-      <div class="bench-card"><div class="bench-label">Passive Alternative</div><div class="bench-value">${esc(report.benchmarks.index_fund)}</div></div>
+      <div class="bench-card"><div class="bench-label">Passive Alternative</div><div class="bench-value">${esc(report.benchmarks.index_fund_alternative)}</div></div>
     </div>
   </div>`;
 }
 
 function renderDataGaps(report: EvaluationReport): string {
   if (report.data_gaps.length === 0) return "";
-  const material = report.data_gaps.filter(g => g.impact === "MATERIAL").length;
+  const material = report.data_gaps.filter(g => g.materiality === "MATERIAL").length;
 
   const items = report.data_gaps.map(g => `
     <div class="gap-item">
-      <div class="gap-impact ${g.impact.toLowerCase()}">${esc(g.impact)}</div>
+      <div class="gap-impact ${g.materiality.toLowerCase()}">${esc(g.materiality)}</div>
       <div>
-        <div class="gap-name">${esc(g.metric)}</div>
-        <div class="gap-desc">${esc(g.explanation)}</div>
+        <div class="gap-name">${esc(g.field)}</div>
+        <div class="gap-desc">${esc(g.impact)}</div>
       </div>
     </div>`).join("");
 
@@ -738,9 +720,6 @@ function renderDataGaps(report: EvaluationReport): string {
       <span class="badge fail">${material} material</span>
     </div>
     <div class="table-wrap">${items}</div>
-    <div style="margin-top:8px;font-size:11px;color:var(--muted)">
-      🔗 <a href="${esc(report.data_gaps[0]?.check_url ?? "")}" target="_blank">${esc(report.data_gaps[0]?.check_url ?? "")}</a>
-    </div>
   </div>`;
 }
 
@@ -753,12 +732,12 @@ function renderSwot(swot: SwotResult): string {
   ];
 
   const panels = quadrants.map(({ key, cls, label, icon }) => {
-    const items = swot[key] as { label: string; detail: string }[];
+    const items = swot[key] as { point: string; evidence: string; strength: string }[];
     const itemsHtml = items.length > 0
       ? items.map(it => `
           <div class="swot-item">
-            <div class="swot-item-label">${esc(it.label)}</div>
-            <div class="swot-item-detail">${esc(it.detail)}</div>
+            <div class="swot-item-label">${esc(it.point)}</div>
+            <div class="swot-item-detail">${esc(it.evidence)}</div>
           </div>`).join("")
       : `<div class="swot-item"><div class="swot-item-detail" style="font-style:italic">None identified</div></div>`;
 
@@ -776,7 +755,7 @@ function renderSwot(swot: SwotResult): string {
   <div class="section">
     <div class="section-title">
       SWOT Analysis
-      <span class="badge pass" style="font-size:10px">${swot.summary.s}S · ${swot.summary.w}W · ${swot.summary.o}O · ${swot.summary.t}T</span>
+      <span class="badge pass" style="font-size:10px">${swot.summary.strengths}S · ${swot.summary.weaknesses}W · ${swot.summary.opportunities}O · ${swot.summary.threats}T</span>
       <span style="font-size:10px;color:var(--muted);margin-left:4px">rule-based · from live data</span>
     </div>
     <div class="swot-grid">${panels.join("")}</div>

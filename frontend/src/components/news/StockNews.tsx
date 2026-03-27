@@ -145,11 +145,12 @@ interface Props {
   symbol: string;
   companyName?: string;
   bseCode?: string;
+  initialData?: NewsResponse | null;
 }
 
-export default function StockNews({ symbol, companyName, bseCode }: Props) {
-  const [data, setData] = useState<NewsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function StockNews({ symbol, companyName, bseCode, initialData }: Props) {
+  const [data, setData] = useState<NewsResponse | null>(initialData ?? null);
+  const [loading, setLoading] = useState(initialData == null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -173,7 +174,12 @@ export default function StockNews({ symbol, companyName, bseCode }: Props) {
     }
   }, [symbol, companyName, bseCode]);
 
-  useEffect(() => { void load(); }, [load]);
+  // Only fetch from network if no initial data was provided
+  useEffect(() => {
+    if (initialData == null) {
+      void load();
+    }
+  }, [load, initialData]);
 
   const filtered =
     data?.items.filter((item) => {
