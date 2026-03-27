@@ -59,7 +59,7 @@ OUTPUT REQUIREMENTS
 Return ONLY valid JSON. No markdown. No preamble. No explanation outside the JSON.
 Match the NewsSentimentAnalysis schema exactly.
 
-The institutional_verdict.action must be consistent with overall.score:
+The institutional_action.recommendation must be consistent with overall.score:
   STRONGLY_BULLISH / BULLISH → ACCUMULATE
   NEUTRAL → HOLD or MONITOR (MONITOR if uncertainty is high)
   BEARISH / STRONGLY_BEARISH → REDUCE

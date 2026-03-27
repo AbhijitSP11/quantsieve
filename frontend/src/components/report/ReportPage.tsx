@@ -25,6 +25,7 @@ interface Props {
 
 export default function ReportPage({ result, onBack }: Props) {
   const { stock, swot, trendlyne, news, sentiment, evaluation } = result;
+  console.log('result :', result);
   const { user } = useAuth();
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
@@ -38,40 +39,74 @@ export default function ReportPage({ result, onBack }: Props) {
   return (
     <div className="min-h-screen bg-slate-50 print:bg-white">
       {/* Sticky toolbar */}
-      <div className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between print:hidden">
-        <div className="font-bold text-blue-600 tracking-widest text-sm">⚡ QUANTSIEVE</div>
-        <div className="flex gap-2">
+      <div className="sticky top-0 z-40 bg-navy-950 border-b border-navy-800 px-4 sm:px-6 h-14 flex items-center justify-between print:hidden">
+        {/* Brand + stock name */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="w-6 h-6 bg-brand-600 rounded-md flex items-center justify-center">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M9 2L3 9h5l-1 5 7-7H9l1-5z" fill="white" />
+              </svg>
+            </div>
+            <span className="hidden sm:block font-bold text-white text-sm tracking-tight">QUANTSIEVE</span>
+          </div>
+          <span className="text-white/20 hidden sm:block">/</span>
+          <span className="font-mono font-bold text-white text-sm truncate">{stock.ticker}</span>
+          <span className="hidden md:block text-slate-500 text-xs truncate">{stock.company_name}</span>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
           <button
             onClick={onBack}
-            className="px-4 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-navy-800 rounded-lg transition-all"
           >
-            ← New Evaluation
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            <span className="hidden sm:inline">New Evaluation</span>
           </button>
 
           {user && (
             <button
               onClick={() => void handleSave()}
               disabled={saveState === "saving" || saveState === "saved"}
-              className={`px-4 py-1.5 text-sm rounded-lg font-medium transition ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
                 saveState === "saved"
-                  ? "bg-green-100 text-green-700 border border-green-200"
+                  ? "bg-green-600 text-white"
                   : saveState === "error"
-                  ? "bg-red-100 text-red-700 border border-red-200"
-                  : "border border-slate-200 hover:bg-slate-50 text-slate-700"
-              } disabled:opacity-60 disabled:cursor-not-allowed`}
+                  ? "bg-red-600 text-white"
+                  : "bg-navy-800 text-slate-300 hover:bg-navy-700 hover:text-white border border-navy-700"
+              }`}
             >
-              {saveState === "saving" ? "Saving…"
-                : saveState === "saved" ? "✓ Saved"
-                : saveState === "error" ? "Save failed"
-                : "Save Report"}
+              {saveState === "saving" ? (
+                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : saveState === "saved" ? (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+              )}
+              <span className="hidden sm:inline">
+                {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Failed" : "Save"}
+              </span>
             </button>
           )}
 
           <button
             onClick={() => window.print()}
-            className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-all"
           >
-            ⬇ Print / PDF
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            <span className="hidden sm:inline">Print / PDF</span>
           </button>
         </div>
       </div>

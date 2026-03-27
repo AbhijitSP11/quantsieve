@@ -12,5 +12,6 @@ export async function evaluate(req: EvaluateRequest): Promise<EvaluateResponse> 
     throw new Error(body.error ?? `HTTP ${res.status}`);
   }
 
-  return res.json() as Promise<EvaluateResponse>;
+  const data = (await res.json()) as EvaluateResponse;
+  return data;
 }

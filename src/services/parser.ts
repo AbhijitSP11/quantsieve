@@ -140,44 +140,49 @@ function parseCompoundedGrowth($: cheerio.CheerioAPI): {
   const roeHistory: { "3y": number | null; "5y": number | null; "10y": number | null; last_year: number | null } =
     { "3y": null, "5y": null, "10y": null, last_year: null };
 
-  // Screener renders these in a .ranges-table or similar inside #profit-loss
-  $("section#profit-loss .ranges-table, section#profit-loss table").each(
-    (_i, table) => {
-      $(table)
-        .find("tr")
-        .each((_j, row) => {
-          const cells = $(row).find("td, th");
-          const label = $(cells[0]).text().trim();
-          const vals = cells
-            .toArray()
-            .slice(1)
-            .map((c) => $(c).text().trim());
+  // Robust table search: find the table that contains "Compounded Sales Growth" anywhere on the page.
+  // Screener renders this in a .ranges-table div inside #profit-loss but the exact structure
+  // varies — searching by content is more reliable than relying on a specific selector.
+  let found = false;
+  $("table").each((_i, table) => {
+    if (found) return;
+    const tableText = $(table).text();
+    if (!/compounded sales growth/i.test(tableText) && !/compounded profit growth/i.test(tableText)) return;
+    found = true;
+    $(table)
+      .find("tr")
+      .each((_j, row) => {
+        const cells = $(row).find("td, th");
+        const label = $(cells[0]).text().trim();
+        const vals = cells
+          .toArray()
+          .slice(1)
+          .map((c) => $(c).text().trim());
 
-          if (/compounded sales growth/i.test(label)) {
-            // cols: 10Y, 5Y, 3Y, TTM
-            sales["10y"] = parsePercent(vals[0] ?? "");
-            sales["5y"] = parsePercent(vals[1] ?? "");
-            sales["3y"] = parsePercent(vals[2] ?? "");
-            sales["ttm"] = parsePercent(vals[3] ?? "");
-          } else if (/compounded profit growth/i.test(label)) {
-            profit["10y"] = parsePercent(vals[0] ?? "");
-            profit["5y"] = parsePercent(vals[1] ?? "");
-            profit["3y"] = parsePercent(vals[2] ?? "");
-            profit["ttm"] = parsePercent(vals[3] ?? "");
-          } else if (/stock price cagr/i.test(label)) {
-            stockCagr["10y"] = parsePercent(vals[0] ?? "");
-            stockCagr["5y"] = parsePercent(vals[1] ?? "");
-            stockCagr["3y"] = parsePercent(vals[2] ?? "");
-            stockCagr["1y"] = parsePercent(vals[3] ?? "");
-          } else if (/return on equity/i.test(label)) {
-            roeHistory["10y"] = parsePercent(vals[0] ?? "");
-            roeHistory["5y"] = parsePercent(vals[1] ?? "");
-            roeHistory["3y"] = parsePercent(vals[2] ?? "");
-            roeHistory["last_year"] = parsePercent(vals[3] ?? "");
-          }
-        });
-    }
-  );
+        if (/compounded sales growth/i.test(label)) {
+          // cols: 10Y, 5Y, 3Y, TTM
+          sales["10y"] = parsePercent(vals[0] ?? "");
+          sales["5y"] = parsePercent(vals[1] ?? "");
+          sales["3y"] = parsePercent(vals[2] ?? "");
+          sales["ttm"] = parsePercent(vals[3] ?? "");
+        } else if (/compounded profit growth/i.test(label)) {
+          profit["10y"] = parsePercent(vals[0] ?? "");
+          profit["5y"] = parsePercent(vals[1] ?? "");
+          profit["3y"] = parsePercent(vals[2] ?? "");
+          profit["ttm"] = parsePercent(vals[3] ?? "");
+        } else if (/stock price cagr/i.test(label)) {
+          stockCagr["10y"] = parsePercent(vals[0] ?? "");
+          stockCagr["5y"] = parsePercent(vals[1] ?? "");
+          stockCagr["3y"] = parsePercent(vals[2] ?? "");
+          stockCagr["1y"] = parsePercent(vals[3] ?? "");
+        } else if (/return on equity/i.test(label)) {
+          roeHistory["10y"] = parsePercent(vals[0] ?? "");
+          roeHistory["5y"] = parsePercent(vals[1] ?? "");
+          roeHistory["3y"] = parsePercent(vals[2] ?? "");
+          roeHistory["last_year"] = parsePercent(vals[3] ?? "");
+        }
+      });
+  });
 
   return { sales, profit, stockCagr, roeHistory };
 }
@@ -187,7 +192,9 @@ function parseShareholding($: cheerio.CheerioAPI): {
   promoterTrend: { quarter: string; pct: number }[];
   pledge: number | null;
   fii: number | null;
+  fiiTrend: { quarter: string; pct: number }[];
   dii: number | null;
+  diiTrend: { quarter: string; pct: number }[];
   pub: number | null;
 } {
   const headers: string[] = [];
@@ -218,22 +225,25 @@ function parseShareholding($: cheerio.CheerioAPI): {
   )?.[1] ?? [];
   const fiiRow = Object.entries(rows).find(([k]) => /fii|foreign/i.test(k))?.[1] ?? [];
   const diiRow = Object.entries(rows).find(([k]) => /dii|domestic inst/i.test(k))?.[1] ?? [];
-  const pubRow = Object.entries(rows).find(([k]) => /^public$/i.test(k))?.[1] ?? [];
+  const pubRow = Object.entries(rows).find(([k]) => /^public/i.test(k))?.[1] ?? [];
   const pledgeRow = Object.entries(rows).find(([k]) => /pledge/i.test(k))?.[1] ?? [];
 
-  const promoterTrend: { quarter: string; pct: number }[] = [];
-  promoterRow.forEach((val, idx) => {
-    const pct = parsePercent(val);
-    const quarter = headers[idx] ?? `Q${idx + 1}`;
-    if (pct !== null) promoterTrend.push({ quarter, pct });
-  });
+  function buildTrend(rowVals: string[]): { quarter: string; pct: number }[] {
+    return rowVals.flatMap((val, idx) => {
+      const pct = parsePercent(val);
+      const quarter = headers[idx] ?? `Q${idx + 1}`;
+      return pct !== null ? [{ quarter, pct }] : [];
+    });
+  }
 
   return {
     promoter: lastValue(promoterRow),
-    promoterTrend,
+    promoterTrend: buildTrend(promoterRow),
     pledge: lastValue(pledgeRow),
     fii: lastValue(fiiRow),
+    fiiTrend: buildTrend(fiiRow),
     dii: lastValue(diiRow),
+    diiTrend: buildTrend(diiRow),
     pub: lastValue(pubRow),
   };
 }
@@ -323,14 +333,15 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
   // Profit & Loss table
   const plData = parseTable($, "section#profit-loss");
 
-  const salesRow = Object.entries(plData).find(([k]) => /^sales$/i.test(k))?.[1];
+  const salesRow = Object.entries(plData).find(([k]) => /^sales/i.test(k))?.[1];
   const netProfitRow = Object.entries(plData).find(([k]) =>
-    /^net profit$/i.test(k)
+    /^net profit/i.test(k)
   )?.[1];
   const epsRow = Object.entries(plData).find(([k]) => /^eps/i.test(k))?.[1];
   const opmRow = Object.entries(plData).find(([k]) => /^opm/i.test(k))?.[1];
-  const interestRow = Object.entries(plData).find(([k]) => /^interest$/i.test(k))?.[1];
+  const interestRow = Object.entries(plData).find(([k]) => /^interest/i.test(k))?.[1];
   const pbtRow = Object.entries(plData).find(([k]) => /^profit before tax/i.test(k))?.[1];
+  const otherIncomeRow = Object.entries(plData).find(([k]) => /^other income/i.test(k))?.[1];
 
   // Net Profit Margin = Net Profit / Sales * 100 (per year)
   const revenue5y = lastNValues(salesRow, 5);
@@ -342,6 +353,9 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
   const ttmRevenue = salesRow ? parseIndianNumber(salesRow[salesRow.length - 1] ?? "") : null;
   const ttmNetProfit = netProfitRow ? parseIndianNumber(netProfitRow[netProfitRow.length - 1] ?? "") : null;
   const ttmEps = epsRow ? parseIndianNumber(epsRow[epsRow.length - 1] ?? "") : null;
+
+  // Other income (last 5 years)
+  const otherIncome5y = lastNValues(otherIncomeRow, 5);
 
   // NPM (net profit margin) computed per year
   const npm5y: number[] = revenue5y.map((rev, i) => {
@@ -360,9 +374,9 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
 
   // Balance sheet
   const bsData = parseTable($, "section#balance-sheet");
-  const borrowingsRow = Object.entries(bsData).find(([k]) => /^borrowings$/i.test(k))?.[1];
-  const reservesRow = Object.entries(bsData).find(([k]) => /^reserves$/i.test(k))?.[1];
-  const totalAssetsRow = Object.entries(bsData).find(([k]) => /^total assets$/i.test(k))?.[1];
+  const borrowingsRow = Object.entries(bsData).find(([k]) => /^borrowings/i.test(k))?.[1];
+  const reservesRow = Object.entries(bsData).find(([k]) => /^reserves/i.test(k))?.[1];
+  const totalAssetsRow = Object.entries(bsData).find(([k]) => /^total assets/i.test(k))?.[1];
 
   // ROCE from ratios section
   const ratiosData = parseTable($, "section#ratios");
@@ -377,6 +391,22 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
 
   // Cash flow
   const cashFlow = parseCashFlow($);
+
+  // D/E: try multiple Screener label variants, then compute from balance sheet as fallback
+  const borrowingsVal = lastValue(borrowingsRow);
+  const reservesVal = lastValue(reservesRow);
+  const deRatioDirect =
+    ratios["Debt to equity"] ??
+    ratios["Debt / Eq"] ??
+    ratios["Debt/Eq"] ??
+    ratios["Debt to Equity"] ??
+    null;
+  const deRatio: number | null =
+    deRatioDirect !== null
+      ? deRatioDirect
+      : borrowingsVal !== null && reservesVal !== null && reservesVal > 0
+      ? parseFloat((borrowingsVal / reservesVal).toFixed(2))
+      : null;
 
   // Listed since — look for incorporation / listing year
   const listedSince: string | null =
@@ -425,12 +455,12 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
     ttm_net_profit: ttmNetProfit,
     ttm_eps: ttmEps,
 
-    debt_to_equity: ratios["Debt to equity"] ?? null,
+    debt_to_equity: deRatio,
     interest_coverage: interestCoverage,
     current_ratio: ratios["Current ratio"] ?? null,
     total_assets: lastValue(totalAssetsRow),
-    borrowings: lastValue(borrowingsRow),
-    reserves: lastValue(reservesRow),
+    borrowings: borrowingsVal,
+    reserves: reservesVal,
 
     cash_flow: cashFlow,
 
@@ -438,8 +468,12 @@ export function parseScreenerPage(html: string, ticker: string): StockData {
     promoter_holding_trend: shareholding.promoterTrend,
     promoter_pledge: shareholding.pledge,
     fii_holding: shareholding.fii,
+    fii_holding_trend: shareholding.fiiTrend,
     dii_holding: shareholding.dii,
+    dii_holding_trend: shareholding.diiTrend,
     public_holding: shareholding.pub,
+
+    other_income: otherIncome5y.length > 0 ? otherIncome5y : null,
 
     compounded_sales_growth: sales,
     compounded_profit_growth: profit,

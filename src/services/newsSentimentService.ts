@@ -4,6 +4,10 @@ import { env } from "../config/env.js";
 import type { NewsItem } from "./news/types.js";
 import type { NewsSentimentAnalysis } from "../types/newsSentiment.js";
 import { NEWS_SENTIMENT_SYSTEM_PROMPT, NEWS_SENTIMENT_USER_PREFIX } from "../prompts/newsSentimentPrompt.js";
+import { generateMockSentiment } from "./newsSentimentService.mock.js";
+
+// Set to true to use mock data instead of Claude API (saves API charges during testing)
+const USE_SENTIMENT_MOCK = process.env.USE_SENTIMENT_MOCK === "true";
 
 let _client: Anthropic | null = null;
 function getClient(): Anthropic {
@@ -117,6 +121,20 @@ export async function analyzeNewsSentiment(
   const userContent = `${NEWS_SENTIMENT_USER_PREFIX}\n\n${lines.join("\n")}`;
 
   try {
+    // ─── Test mode: use mock sentiment data instead of Claude API ─────────────────
+    if (USE_SENTIMENT_MOCK) {
+      console.log("[NewsSentiment] ⚠️  MOCK MODE ENABLED — returning test data (set USE_SENTIMENT_MOCK=false to use real Claude API)");
+      const mockData = generateMockSentiment(companyName, symbol);
+      const result = newsSentimentSchema.safeParse(mockData);
+      if (!result.success) {
+        console.error("[NewsSentiment] Mock data failed schema validation! This is a bug.");
+        return null;
+      }
+      console.log(`[NewsSentiment] Mock Done — score=${result.data.overall.score} action=${result.data.institutional_action.recommendation}`);
+      return result.data;
+    }
+
+    // ─── Production: call Claude API ─────────────────────────────────────────────
     const message = await getClient().messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2500,
@@ -132,12 +150,15 @@ export async function analyzeNewsSentiment(
 
     const result = newsSentimentSchema.safeParse(parsed);
     if (!result.success) {
-      console.warn("[NewsSentiment] Schema validation failed:", result.error.message);
-      console.warn("[NewsSentiment] Raw Claude response:", cleaned.slice(0, 300));
+      console.warn("[NewsSentiment] Schema validation failed:");
+      console.warn("[NewsSentiment] Error details:", JSON.stringify(result.error.flatten(), null, 2));
+      console.warn("[NewsSentiment] Full Claude response:", cleaned);
+      console.warn("[NewsSentiment] Parsed JSON:", JSON.stringify(parsed, null, 2));
       return null;
     }
 
     console.log(`[NewsSentiment] Done — score=${result.data.overall.score} action=${result.data.institutional_action.recommendation}`);
+    console.log('result.data for sentiment:', result.data);
     return result.data;
   } catch (err) {
     console.warn("[NewsSentiment] Analysis failed:", err instanceof Error ? err.message : err);

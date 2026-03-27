@@ -54,8 +54,13 @@ export interface StockData {
   promoter_holding_trend: { quarter: string; pct: number }[];
   promoter_pledge: number | null;
   fii_holding: number | null;
+  fii_holding_trend?: { quarter: string; pct: number }[];
   dii_holding: number | null;
+  dii_holding_trend?: { quarter: string; pct: number }[];
   public_holding: number | null;
+
+  // P&L supplementary
+  other_income?: number[] | null; // Other income (last 5 years, Crores) — used for QC11
 
   // Growth rates (from Screener's compounded growth section)
   compounded_sales_growth: {

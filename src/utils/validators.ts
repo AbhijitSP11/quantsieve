@@ -266,7 +266,7 @@ export const evaluationReportSchema = z.object({
 
   quality_score: QualityScoreSchema,
 
-  compatibility: z.array(CompatibilityItemSchema).min(5),
+  compatibility: z.array(CompatibilityItemSchema).min(9).max(9),
 
   compatibility_overall: CompatibilityOverallSchema,
 

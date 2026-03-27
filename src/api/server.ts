@@ -129,6 +129,8 @@ async function runEvaluation(body: unknown) {
     return { ok: false as const, status: 500, error: message };
   }
 
+  console.log('sentiment :', sentiment);
+
   return {
     ok: true as const,
     stock: stockData,
@@ -162,6 +164,8 @@ app.post("/api/evaluate", async (req: Request, res: Response) => {
     const cacheKey = `${result.stock.ticker}:${result.stock.company_name ?? ""}`;
     newsCache.set(cacheKey, { data: result.news, expiresAt: Date.now() + NEWS_TTL_MS });
   }
+
+  console.log('backend sentiment :', result.sentiment);
 
   res.json({
     stock: result.stock,

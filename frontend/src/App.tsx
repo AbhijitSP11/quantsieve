@@ -14,12 +14,27 @@ const STEPS = [
   "Fetching live data from Screener.in…",
   "Running rule-based SWOT analysis…",
   "Fetching supplementary data from Trendlyne…",
-  "Sending to Claude for 14-step evaluation…",
-  "Validating AI response…",
+  "Running 15-step Claude evaluation…",
+  "Analyzing news sentiment…",
   "Building your report…",
 ];
 
-// ─── Inner app (needs auth context) ─────────────────────────────────────────
+// ─── Logo mark ───────────────────────────────────────────────────────────────
+
+function LogoMark({ size = 28 }: { size?: number }) {
+  return (
+    <div
+      className="flex items-center justify-center rounded-lg bg-brand-600 shrink-0"
+      style={{ width: size, height: size }}
+    >
+      <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 16 16" fill="none">
+        <path d="M9 2L3 9h5l-1 5 7-7H9l1-5z" fill="white" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── Inner app (needs auth context) ──────────────────────────────────────────
 
 function AppInner() {
   const { user } = useAuth();
@@ -37,7 +52,7 @@ function AppInner() {
 
     const interval = setInterval(() => {
       setStep((s) => Math.min(s + 1, STEPS.length - 1));
-    }, 6000);
+    }, 5500);
 
     try {
       const data = await evaluate(req);
@@ -57,7 +72,7 @@ function AppInner() {
     setTab("evaluate");
   }
 
-  // If showing a report, render full-screen (no chrome)
+  // Full-screen report view — no nav chrome
   if (result) {
     return (
       <>
@@ -71,42 +86,55 @@ function AppInner() {
     <div className="min-h-screen bg-slate-50">
       {loading && <LoadingOverlay steps={STEPS} currentStep={step} />}
 
-      {/* ── Top nav ───────────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
-        <div className="font-bold text-blue-600 tracking-widest text-sm">⚡ QUANTSIEVE</div>
+      {/* ── Navigation ──────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-40 bg-navy-950 border-b border-navy-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
 
-        <div className="flex items-center gap-3">
-          {/* Tab switcher — only show My Reports when signed in */}
-          <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
-            <button
-              onClick={() => setTab("evaluate")}
-              className={`px-3 py-1.5 transition ${
-                tab === "evaluate"
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Evaluate
-            </button>
-            {user && (
-              <button
-                onClick={() => setTab("reports")}
-                className={`px-3 py-1.5 transition border-l border-slate-200 ${
-                  tab === "reports"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                My Reports
-              </button>
-            )}
+          {/* Brand */}
+          <div className="flex items-center gap-2.5">
+            <LogoMark size={28} />
+            <div className="flex items-baseline gap-2">
+              <span className="font-bold text-white tracking-tight text-sm">QUANTSIEVE</span>
+              <span className="hidden sm:block text-slate-500 text-xs font-medium">
+                Institutional Equity Evaluation
+              </span>
+            </div>
           </div>
 
-          <AuthButton />
-        </div>
-      </div>
+          {/* Right cluster */}
+          <div className="flex items-center gap-2">
+            {/* Tab switcher */}
+            <nav className="flex items-center gap-0.5 bg-navy-900 rounded-lg p-1 border border-navy-800">
+              <button
+                onClick={() => setTab("evaluate")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  tab === "evaluate"
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white hover:bg-navy-800"
+                }`}
+              >
+                Evaluate
+              </button>
+              {user && (
+                <button
+                  onClick={() => setTab("reports")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    tab === "reports"
+                      ? "bg-brand-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white hover:bg-navy-800"
+                  }`}
+                >
+                  My Reports
+                </button>
+              )}
+            </nav>
 
-      {/* ── Content ───────────────────────────────────────────────────── */}
+            <AuthButton />
+          </div>
+        </div>
+      </header>
+
+      {/* ── Content ─────────────────────────────────────────────────── */}
       {tab === "evaluate" ? (
         <EvaluateForm onSubmit={handleSubmit} loading={loading} error={error} />
       ) : (
@@ -121,7 +149,7 @@ function AppInner() {
   );
 }
 
-// ─── Root with provider ───────────────────────────────────────────────────────
+// ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
   return (

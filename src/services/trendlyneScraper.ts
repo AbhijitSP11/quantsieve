@@ -202,7 +202,7 @@ function parseSwotWidget($: cheerio.CheerioAPI): TrendlyneData["tl_swot"] {
     return null;
   }
 
-  // Strategy 1: heading → next sibling <ul>/<li>
+  // Strategy 1: heading → next sibling <ul>/<li> or <p>/<div>
   $("h1,h2,h3,h4,h5,h6").each((_i, hEl) => {
     const hText = $(hEl).text().trim();
     const bucket = bucketFor(hText);
@@ -219,6 +219,13 @@ function parseSwotWidget($: cheerio.CheerioAPI): TrendlyneData["tl_swot"] {
         if (txt.length > 5) bucket.push({ text: txt });
       });
     }
+    // Also try <p> and <div> siblings between headings
+    if (bucket.length === 0) {
+      $(hEl).nextUntil("h1,h2,h3,h4,h5,h6", "p,div,span").each((_j, el) => {
+        const txt = $(el).text().trim();
+        if (txt.length > 5 && !/^\d+$/.test(txt)) bucket.push({ text: txt });
+      });
+    }
   });
 
   // Strategy 2: class-based containers
@@ -228,12 +235,53 @@ function parseSwotWidget($: cheerio.CheerioAPI): TrendlyneData["tl_swot"] {
         const cls = ($(section).attr("class") ?? "").toLowerCase();
         const bucket = bucketFor(cls) ?? bucketFor($(section).text());
         if (!bucket) return;
-        $(section).find("li,p,[class*='item']").each((_j, el) => {
-          const txt = $(el).text().trim();
-          if (txt.length > 5) bucket.push({ text: txt });
+        $(section).find("li,p,div,span,[class*='item']").each((_j, el) => {
+          // Skip if this element is the container itself
+          if (el === section) return;
+          // Skip if the element has children with substantial text (avoid double-counting containers)
+          const ownText = $(el).clone().children().remove().end().text().trim();
+          const txt = ownText.length > 5 ? ownText : $(el).text().trim();
+          if (txt.length > 5 && !bucketFor(txt)) bucket.push({ text: txt });
         });
       }
     );
+  }
+
+  // Strategy 3: data-attribute containers (Trendlyne sometimes uses data-type or data-swot)
+  if (strengths.length + weaknesses.length + opportunities.length + threats.length === 0) {
+    $("[data-type],[data-swot],[data-category]").each((_i, el) => {
+      const attrVal = (
+        $(el).attr("data-type") ??
+        $(el).attr("data-swot") ??
+        $(el).attr("data-category") ??
+        ""
+      ).toLowerCase();
+      const bucket = bucketFor(attrVal);
+      if (!bucket) return;
+      const txt = $(el).text().trim();
+      if (txt.length > 5) bucket.push({ text: txt });
+    });
+  }
+
+  // Strategy 4: scan all <p> and leaf <div>/<span> tags, bucket by proximity to count labels
+  // This catches widgets that render items as plain paragraphs without explicit SWOT containers.
+  if (strengths.length + weaknesses.length + opportunities.length + threats.length === 0) {
+    let activeBucket: TrendlyneSwotItem[] | null = null;
+    $("*").each((_i, el) => {
+      const tag = ($(el).prop("tagName") as string | undefined)?.toLowerCase() ?? "";
+      const txt = $(el).clone().children().remove().end().text().trim();
+      if (!txt || txt.length < 5) return;
+      // Detect a SWOT section header (own text only to avoid false positives from child text)
+      const asHeader = bucketFor(txt);
+      if (asHeader) {
+        activeBucket = asHeader;
+        return;
+      }
+      // If we're inside a known section, collect leaf text nodes
+      if (activeBucket && ["li", "p", "span", "div"].includes(tag) && txt.length > 10) {
+        activeBucket.push({ text: txt });
+      }
+    });
   }
 
   // Counts: anchor to label words to avoid matching stray S/W/O/T letters elsewhere

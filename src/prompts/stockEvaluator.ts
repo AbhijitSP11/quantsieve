@@ -453,7 +453,9 @@ STEP 11 — INVESTOR FIT & COMPATIBILITY
 Judge suitability for THIS specific investor. A stock can be excellent and still be wrong
 for a particular investor profile.
 
-Assess each dimension:
+You MUST assess ALL 9 dimensions below — every one is required in the output, even if the
+result is MATCH. Skipping a dimension will cause a validation error.
+
   — horizon_fit: Is this a 3Y+ compounder being recommended to someone with 1-2Y horizon?
   — volatility_fit: Is beta or business cyclicality mismatched with stated volatility preference?
   — concentration_fit: Position size stated vs risk level of this stock.
@@ -462,16 +464,16 @@ Assess each dimension:
   — entry_mode_fit: given market conditions and valuation, is lump sum or staggered more
     appropriate? (Overvalued stock + lump sum = concern regardless of quality)
   — liquidity_fit: for small-cap stocks (MCap < ₹2,000 Cr), flag exit liquidity risk
-    explicitly for investors with short-medium horizons or large position sizes
+    explicitly for investors with short-medium horizons or large position sizes.
+    For large-caps (MCap > ₹50,000 Cr) this is always MATCH — still include it.
   — tax_fit: for 30% bracket investors, dividend-heavy or frequent-churn strategies
-    reduce post-tax returns meaningfully — flag if relevant
+    reduce post-tax returns meaningfully — flag if relevant. Always include this dimension.
   — goal_fit: Is this stock type aligned with the stated investment goal?
     (Speculative mid-cap for retirement goal = mismatch)
   — stability_fit: Does business earnings volatility suit the investor's stability needs?
 
 For each dimension: MATCH | CONCERN | MISMATCH
-
-Output compatibility_overall: STRONG | MODERATE | POOR
+Output all 9 as a flat array. compatibility_overall: STRONG | MODERATE | POOR
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 12 — SCENARIO FRAMEWORK & RISK/REWARD
@@ -784,11 +786,15 @@ from the analysis above:
     "label": "GOOD | MODERATE | BAD"
   },
   "compatibility": [
-    {
-      "dimension": "string",
-      "result": "MATCH | CONCERN | MISMATCH",
-      "note": "string"
-    }
+    { "dimension": "horizon_fit",       "result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "volatility_fit",    "result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "concentration_fit", "result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "risk_tolerance_fit","result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "entry_mode_fit",    "result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "liquidity_fit",     "result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "tax_fit",           "result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "goal_fit",          "result": "MATCH | CONCERN | MISMATCH", "note": "string" },
+    { "dimension": "stability_fit",     "result": "MATCH | CONCERN | MISMATCH", "note": "string" }
   ],
   "compatibility_overall": "STRONG | MODERATE | POOR",
   "thesis_breakers": ["string"],

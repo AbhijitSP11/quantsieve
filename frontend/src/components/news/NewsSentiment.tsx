@@ -110,6 +110,7 @@ interface Props {
 }
 
 export default function NewsSentiment({ sentiment }: Props) {
+console.log('sentiment :', sentiment);
   const badge = scoreBadge(sentiment.overall.score);
   const action = actionStyle(sentiment.institutional_action.recommendation);
 
