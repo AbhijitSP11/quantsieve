@@ -18,6 +18,21 @@ import BenchmarksSection from "./BenchmarksSection";
 import StockNews from "../news/StockNews";
 import NewsSentiment from "../news/NewsSentiment";
 
+// ─── Section label divider ────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-4 print:mb-2">
+      <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">
+        {children}
+      </span>
+      <div className="flex-1 h-px bg-slate-300" />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface Props {
   result: EvaluateResponse;
   onBack: () => void;
@@ -37,29 +52,29 @@ export default function ReportPage({ result, onBack }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 print:bg-white">
+    <div className="min-h-screen bg-slate-100 print:bg-white">
       {/* Sticky toolbar */}
-      <div className="sticky top-0 z-40 bg-navy-950 border-b border-navy-800 px-4 sm:px-6 h-14 flex items-center justify-between print:hidden">
+      <div className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 sm:px-6 h-14 flex items-center justify-between print:hidden" style={{ boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)' }}>
         {/* Brand + stock name */}
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center gap-2 shrink-0">
-            <div className="w-6 h-6 bg-brand-600 rounded-md flex items-center justify-center">
+            <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                 <path d="M9 2L3 9h5l-1 5 7-7H9l1-5z" fill="white" />
               </svg>
             </div>
-            <span className="hidden sm:block font-bold text-white text-sm tracking-tight">QUANTSIEVE</span>
+            <span className="hidden sm:block font-black text-slate-900 text-sm tracking-tight">QUANTSIEVE</span>
           </div>
-          <span className="text-white/20 hidden sm:block">/</span>
-          <span className="font-mono font-bold text-white text-sm truncate">{stock.ticker}</span>
-          <span className="hidden md:block text-slate-500 text-xs truncate">{stock.company_name}</span>
+          <span className="text-slate-300 hidden sm:block">/</span>
+          <span className="font-mono font-bold text-slate-900 text-sm truncate">{stock.ticker}</span>
+          <span className="hidden md:block text-slate-400 text-xs truncate">{stock.company_name}</span>
         </div>
 
         {/* Actions */}
         <div className="flex items-center gap-2">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-navy-800 rounded-lg transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -76,7 +91,7 @@ export default function ReportPage({ result, onBack }: Props) {
                   ? "bg-green-600 text-white"
                   : saveState === "error"
                   ? "bg-red-600 text-white"
-                  : "bg-navy-800 text-slate-300 hover:bg-navy-700 hover:text-white border border-navy-700"
+                  : "bg-slate-800 text-white hover:bg-slate-700 border border-slate-700"
               }`}
             >
               {saveState === "saving" ? (
@@ -101,7 +116,7 @@ export default function ReportPage({ result, onBack }: Props) {
 
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
@@ -111,81 +126,118 @@ export default function ReportPage({ result, onBack }: Props) {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
-        <CoverSection stock={stock} evaluation={evaluation} />
-        <SnapshotGrid stock={stock} evaluation={evaluation} />
-        <SwotSection swot={swot} />
-        {trendlyne && <TrendlyneSection trendlyne={trendlyne} />}
-        <FlagsSection evaluation={evaluation} />
-        <FinancialsSection evaluation={evaluation} />
-        <ValuationSection evaluation={evaluation} stock={stock} />
-        <QualityChecks evaluation={evaluation} />
-        <CompatibilitySection evaluation={evaluation} />
-        <MarketExpectationsSection data={evaluation.market_expectation_analysis} />
-        <EntryStrategySection data={evaluation.entry_strategy} />
-        <VerdictSection evaluation={evaluation} />
-        <BenchmarksSection evaluation={evaluation} />
+      <div className="max-w-5xl mx-auto px-4 py-8">
 
-        {/* Latest News & Disclosures */}
-        <StockNews
-          symbol={stock.ticker}
-          companyName={stock.company_name ?? undefined}
-          initialData={news}
-        />
+        {/* ── Section 1: Company Overview ──────────────────────────── */}
+        <SectionLabel>Company Overview</SectionLabel>
+        <div className="space-y-4 mb-10">
+          <CoverSection stock={stock} evaluation={evaluation} />
+          <SnapshotGrid stock={stock} evaluation={evaluation} />
+        </div>
 
-        {/* Institutional News Sentiment */}
-        {sentiment ? (
-          <NewsSentiment sentiment={sentiment} />
-        ) : (
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Institutional News Sentiment
-              </span>
-              <span className="text-[10px] text-slate-400">AI-powered · Claude</span>
-            </div>
-            <div className="px-5 py-8 flex flex-col items-center gap-2 text-center">
-              <div className="text-slate-300 text-3xl">◎</div>
-              <div className="text-sm font-medium text-slate-500">
-                {news && news.items.length > 0
-                  ? "Sentiment analysis could not be generated for this run."
-                  : "No news data available — BSE/NSE/Google News required."}
+        {/* ── Section 2: Analysis ──────────────────────────────────── */}
+        <SectionLabel>Analysis</SectionLabel>
+        <div className="space-y-4 mb-10">
+          <SwotSection swot={swot} />
+          {trendlyne && <TrendlyneSection trendlyne={trendlyne} />}
+          <FlagsSection evaluation={evaluation} />
+        </div>
+
+        {/* ── Section 3: Financials ────────────────────────────────── */}
+        <SectionLabel>Financial Health</SectionLabel>
+        <div className="space-y-4 mb-10">
+          <FinancialsSection evaluation={evaluation} />
+        </div>
+
+        {/* ── Section 4: Valuation & Strategy ─────────────────────── */}
+        <SectionLabel>Valuation &amp; Strategy</SectionLabel>
+        <div className="space-y-4 mb-10">
+          <ValuationSection evaluation={evaluation} stock={stock} />
+          <MarketExpectationsSection data={evaluation.market_expectation_analysis} />
+          <EntryStrategySection data={evaluation.entry_strategy} />
+        </div>
+
+        {/* ── Section 5: Risk & Governance ────────────────────────── */}
+        <SectionLabel>Risk &amp; Governance</SectionLabel>
+        <div className="space-y-4 mb-10">
+          <QualityChecks evaluation={evaluation} />
+          <CompatibilitySection evaluation={evaluation} />
+        </div>
+
+        {/* ── Section 6: Verdict ──────────────────────────────────── */}
+        <SectionLabel>Final Verdict</SectionLabel>
+        <div className="space-y-4 mb-10">
+          <VerdictSection evaluation={evaluation} />
+          <BenchmarksSection evaluation={evaluation} />
+        </div>
+
+        {/* ── Section 7: News & Intelligence ──────────────────────── */}
+        <SectionLabel>News &amp; Intelligence</SectionLabel>
+        <div className="space-y-4 mb-10">
+          <StockNews
+            symbol={stock.ticker}
+            companyName={stock.company_name ?? undefined}
+            initialData={news}
+          />
+
+          {sentiment ? (
+            <NewsSentiment sentiment={sentiment} />
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                  Institutional News Sentiment
+                </span>
+                <span className="text-[10px] text-slate-400">AI-powered · Claude</span>
               </div>
-              <div className="text-xs text-slate-400 max-w-sm">
-                {news && news.items.length > 0
-                  ? "Re-run the evaluation to generate an institutional sentiment analysis based on the latest news."
-                  : "Ensure the server can reach BSE India and Google News, then re-run the evaluation."}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Data Gaps */}
-        {evaluation.data_gaps.length > 0 && (
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Data Gaps</span>
-              <span className="text-xs bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded">
-                {evaluation.data_gaps.filter(g => g.materiality === "MATERIAL").length} material
-              </span>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {evaluation.data_gaps.map((g, i) => (
-                <div key={i} className="flex items-start gap-3 px-5 py-3">
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded mt-0.5 ${g.materiality === "MATERIAL" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>
-                    {g.materiality}
-                  </span>
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">{g.field}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{g.impact}</div>
-                  </div>
+              <div className="px-5 py-8 flex flex-col items-center gap-2 text-center">
+                <div className="text-slate-300 text-3xl">◎</div>
+                <div className="text-sm font-medium text-slate-500">
+                  {news && news.items.length > 0
+                    ? "Sentiment analysis could not be generated for this run."
+                    : "No news data available — BSE/NSE/Google News required."}
                 </div>
-              ))}
+                <div className="text-xs text-slate-400 max-w-sm">
+                  {news && news.items.length > 0
+                    ? "Re-run the evaluation to generate an institutional sentiment analysis based on the latest news."
+                    : "Ensure the server can reach BSE India and Google News, then re-run the evaluation."}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+        </div>
+
+        {/* ── Data Gaps (conditional) ──────────────────────────────── */}
+        {evaluation.data_gaps.length > 0 && (
+          <>
+            <SectionLabel>Data Gaps</SectionLabel>
+            <div className="mb-10">
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Missing Data</span>
+                  <span className="text-xs bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded">
+                    {evaluation.data_gaps.filter(g => g.materiality === "MATERIAL").length} material
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {evaluation.data_gaps.map((g, i) => (
+                    <div key={i} className="flex items-start gap-3 px-5 py-3">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded mt-0.5 shrink-0 ${g.materiality === "MATERIAL" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>
+                        {g.materiality}
+                      </span>
+                      <div>
+                        <div className="text-sm font-medium text-slate-800">{g.field}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{g.impact}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
         )}
 
-        <p className="text-center text-xs text-slate-400 py-4 print:block">
+        <p className="text-center text-xs text-slate-400 py-6 border-t border-slate-100 print:block">
           Generated by QuantSieve · Data from Screener.in · AI via Claude (Anthropic) · For informational purposes only
         </p>
       </div>

@@ -24,7 +24,7 @@ const STEPS = [
 function LogoMark({ size = 28 }: { size?: number }) {
   return (
     <div
-      className="flex items-center justify-center rounded-lg bg-brand-600 shrink-0"
+      className="flex items-center justify-center rounded-lg bg-blue-600 shrink-0"
       style={{ width: size, height: size }}
     >
       <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 16 16" fill="none">
@@ -87,30 +87,30 @@ function AppInner() {
       {loading && <LoadingOverlay steps={STEPS} currentStep={step} />}
 
       {/* ── Navigation ──────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-navy-950 border-b border-navy-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200" style={{ boxShadow: "0 1px 3px 0 rgba(0,0,0,0.06)" }}>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
 
           {/* Brand */}
           <div className="flex items-center gap-2.5">
-            <LogoMark size={28} />
+            <LogoMark size={26} />
             <div className="flex items-baseline gap-2">
-              <span className="font-bold text-white tracking-tight text-sm">QUANTSIEVE</span>
-              <span className="hidden sm:block text-slate-500 text-xs font-medium">
+              <span className="font-black text-slate-900 tracking-tight text-sm">QUANTSIEVE</span>
+              <span className="hidden md:block text-slate-400 text-xs font-medium border-l border-slate-200 pl-2 ml-0.5">
                 Institutional Equity Evaluation
               </span>
             </div>
           </div>
 
           {/* Right cluster */}
-          <div className="flex items-center gap-2">
-            {/* Tab switcher */}
-            <nav className="flex items-center gap-0.5 bg-navy-900 rounded-lg p-1 border border-navy-800">
+          <div className="flex items-center gap-1">
+            {/* Tab switcher — underline style, matches hero section height */}
+            <nav className="flex items-stretch h-14">
               <button
                 onClick={() => setTab("evaluate")}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                className={`flex items-center px-4 text-sm font-semibold transition-all border-b-2 ${
                   tab === "evaluate"
-                    ? "bg-brand-600 text-white shadow-sm"
-                    : "text-slate-400 hover:text-white hover:bg-navy-800"
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
                 }`}
               >
                 Evaluate
@@ -118,10 +118,10 @@ function AppInner() {
               {user && (
                 <button
                   onClick={() => setTab("reports")}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  className={`flex items-center px-4 text-sm font-semibold transition-all border-b-2 ${
                     tab === "reports"
-                      ? "bg-brand-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-white hover:bg-navy-800"
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   My Reports
@@ -129,7 +129,9 @@ function AppInner() {
               )}
             </nav>
 
-            <AuthButton />
+            <div className="ml-2">
+              <AuthButton />
+            </div>
           </div>
         </div>
       </header>
